@@ -39,3 +39,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local / regenerable (inmo-growth)
+# configuración local de la herramienta (rutas de mi máquina)
+/.claude/
+# se copia desde node_modules en el postinstall
+/public/maplibre/
+*.bak
+# trozos descargados de Overpass (se regeneran con scripts/fetch_osm_hist.py)
+/data/raw/osm_hist_tiles/
+/data/raw/osm_now_tiles/

@@ -1,0 +1,53 @@
+"""Universidades por municipio = Wikidata (instituciones filtradas) + campus de OpenStreetMap (amenity=university).
+Entrada: data/raw/wikidata_universidades.csv, data/raw/osm_uni_now.csv, data/raw/coords.csv
+Salida:  data/raw/universidades.csv  (ine, wd, osm, names)
+Aproximación: sin cifras de alumnos (Wikidata solo las tiene para unas pocas); sirve como señal de presencia/tamaño.
+"""
+import csv, pathlib, re, collections
+import numpy as np
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+RAW = ROOT / "data/raw"
+munis = [(r["ine"], float(r["lat"]), float(r["lon"])) for r in csv.DictReader(open(RAW / "coords.csv"))]
+ids = [m[0] for m in munis]
+mlat = np.radians([m[1] for m in munis]); mlon = np.radians([m[2] for m in munis])
+
+
+def nearest(lat, lon, max_km):
+    la, lo = np.radians(lat), np.radians(lon)
+    h = np.sin((mlat - la) / 2) ** 2 + np.cos(la) * np.cos(mlat) * np.sin((mlon - lo) / 2) ** 2
+    d = 2 * 6371 * np.arcsin(np.sqrt(h))
+    j = int(d.argmin())
+    return ids[j] if d[j] <= max_km else None
+
+
+IS_UNI = re.compile(r"^(Universidad|Universitat|Universidade|Unibertsitatea|University)\b", re.I)
+BAD = re.compile(r"(Siglo|Antigua|Real Universidad|Estudis|Bircham|Royal|Internacional de Andaluc|Ateneo|Seminario|Instituto|Academia|Escuela|Facultad|Faculty|Edificio|Central$|Osuna)", re.I)
+
+wd = collections.defaultdict(set)  # ine -> {nombre base}
+for r in csv.DictReader(open(RAW / "wikidata_universidades.csv", encoding="utf-8")):
+    name = r["uLabel"].split(" - ")[0].strip()
+    if not IS_UNI.search(name) or BAD.search(name):
+        continue
+    ine = r["ine"] or (nearest(float(r["lat"]), float(r["lon"]), 8) if r["lat"] else None)
+    if ine in ids:
+        wd[ine].add(name)
+
+osm = collections.Counter()
+for line in open(RAW / "osm_uni_now.csv", encoding="utf-8"):
+    p = line.strip().split("\t")
+    if len(p) >= 2:
+        try:
+            j = nearest(float(p[0]), float(p[1]), 8)
+        except ValueError:
+            continue
+        if j:
+            osm[j] += 1
+
+rows = []
+for ine in sorted(set(wd) | {k for k, v in osm.items() if v >= 2}):
+    names = sorted(wd.get(ine, []))
+    rows.append([ine, len(names), osm.get(ine, 0), "; ".join(names[:3])])
+with open(RAW / "universidades.csv", "w", newline="", encoding="utf-8") as f:
+    w = csv.writer(f); w.writerow(["ine", "wd", "osm", "names"]); w.writerows(rows)
+print(len(rows), "municipios con universidad;", sum(1 for r in rows if r[1]), "por Wikidata;", sum(1 for r in rows if r[2] >= 2), "por OSM")
