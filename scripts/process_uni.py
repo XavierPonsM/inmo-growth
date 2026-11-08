@@ -13,6 +13,16 @@ ids = [m[0] for m in munis]
 mlat = np.radians([m[1] for m in munis]); mlon = np.radians([m[2] for m in munis])
 
 
+idx = {m: i for i, m in enumerate(ids)}
+dist = collections.defaultdict(list)  # ine -> distancias (km) de cada punto de campus al centro del municipio
+
+
+def km(lat, lon, i):
+    la, lo = np.radians(lat), np.radians(lon)
+    h = np.sin((mlat[i] - la) / 2) ** 2 + np.cos(la) * np.cos(mlat[i]) * np.sin((mlon[i] - lo) / 2) ** 2
+    return float(2 * 6371 * np.arcsin(np.sqrt(h)))
+
+
 def nearest(lat, lon, max_km):
     la, lo = np.radians(lat), np.radians(lon)
     h = np.sin((mlat - la) / 2) ** 2 + np.cos(la) * np.cos(mlat) * np.sin((mlon - lo) / 2) ** 2
@@ -32,6 +42,8 @@ for r in csv.DictReader(open(RAW / "wikidata_universidades.csv", encoding="utf-8
     ine = r["ine"] or (nearest(float(r["lat"]), float(r["lon"]), 8) if r["lat"] else None)
     if ine in ids:
         wd[ine].add(name)
+        if r["lat"]:
+            dist[ine].append(km(float(r["lat"]), float(r["lon"]), idx[ine]))
 
 osm = collections.Counter()
 for line in open(RAW / "osm_uni_now.csv", encoding="utf-8"):
@@ -43,11 +55,12 @@ for line in open(RAW / "osm_uni_now.csv", encoding="utf-8"):
             continue
         if j:
             osm[j] += 1
+            dist[j].append(km(float(p[0]), float(p[1]), idx[j]))
 
 rows = []
 for ine in sorted(set(wd) | {k for k, v in osm.items() if v >= 2}):
     names = sorted(wd.get(ine, []))
-    rows.append([ine, len(names), osm.get(ine, 0), "; ".join(names[:3])])
+    rows.append([ine, len(names), osm.get(ine, 0), "; ".join(names[:3]), round(min(dist[ine]), 1) if dist.get(ine) else ""])
 with open(RAW / "universidades.csv", "w", newline="", encoding="utf-8") as f:
-    w = csv.writer(f); w.writerow(["ine", "wd", "osm", "names"]); w.writerows(rows)
+    w = csv.writer(f); w.writerow(["ine", "wd", "osm", "names", "dkm"]); w.writerows(rows)
 print(len(rows), "municipios con universidad;", sum(1 for r in rows if r[1]), "por Wikidata;", sum(1 for r in rows if r[2] >= 2), "por OSM")

@@ -93,6 +93,7 @@ for r in rows:
     r["uniOsm"] = int(u["osm"]) if u else 0       # nº de elementos de campus en OSM (proxy de tamaño)
     r["uniN"] = (u["names"] if u else "") or None
     r["uniSize"] = 3 * r["uni"] + r["uniOsm"]
+    r["uniD"] = float(u["dkm"]) if u and u.get("dkm") else None  # km del centro del municipio al campus más cercano
 
 # Precio del suelo urbano (€/m²): Ministerio de Transportes, por PROVINCIA y TRAMO de población (no existe por municipio)
 suelo = {(r["prov"], int(r["tramo"])): r for r in csv.DictReader(open(ROOT / "data/raw/suelo_provincia_tramo.csv"))}
@@ -157,6 +158,26 @@ for r in rows:
     best = min(_cities, key=lambda c: _km(r, c))
     r["dc"] = round(_km(r, best))                                   # km hasta la ciudad grande más cercana (0 si lo es)
     r["cn"] = best["n"].split("/")[-1] if "/" in best["n"] else best["n"]  # nombre corto de esa ciudad
+
+# ---- Edad, paro y costa (INE Atlas de renta, SEPE, Natural Earth) ----
+_edad = {r["ine"]: r for r in csv.DictReader(open(ROOT / "data/raw/edad_mun.csv"))}
+_paro = {r["ine"]: r for r in csv.DictReader(open(ROOT / "data/raw/paro_mun.csv"))}
+_costa = {r["ine"]: float(r["km"]) for r in csv.DictReader(open(ROOT / "data/raw/costa_mun.csv"))}
+for r in rows:
+    e = _edad.get(r["id"])
+    r["m18"] = float(e["pct_menor18"]) if e and e["pct_menor18"] else None   # % menores de 18 años
+    r["edM"] = float(e["edad_media"]) if e and e["edad_media"] else None     # edad media
+    r["m65"] = float(e["pct_mayor65"]) if e and e["pct_mayor65"] else None   # % de 65 y más
+    r["costa"] = _costa.get(r["id"])                                         # km al mar
+    pr = _paro.get(r["id"])
+    r["paro"] = r["paroT"] = None
+    if pr and r["m18"] is not None and r["m65"] is not None:
+        act = r["pop"] * (100 - r["m18"] - r["m65"]) / 100  # población de 18 a 64 años, aprox.
+        if act >= 200:
+            now = float(pr["paro_now"])
+            r["paro"] = round(now / act * 100, 1)                                  # paro registrado / población de 18-64 (%)
+            if pr["paro_ago"] != "":
+                r["paroT"] = round((now - float(pr["paro_ago"])) / act * 100, 2)  # variación interanual, en puntos
 
 # ---- Calidad de la zona (NO entra en el índice de crecimiento; se muestra aparte y sirve de filtro) ----
 # Seguridad: criminalidad convencional por 1.000 hab. (Interior; solo capitales y municipios >20.000 hab.).
@@ -243,26 +264,42 @@ r_solar = pct_rank([r["solarPc"] for r in elig if r["solarPc"] is not None])
 r_viv = pct_rank([r["vivPm"] for r in elig if r["vivPm"] is not None])
 r_vt = pct_rank([r["vtG"] for r in elig if r["vtG"] is not None])
 r_suelo = pct_rank([r["sueloG"] for r in elig if r["sueloG"] is not None])
+r_m18 = pct_rank([r["m18"] for r in elig if r["m18"] is not None])
+r_edM = pct_rank([-r["edM"] for r in elig if r["edM"] is not None])
+r_paro = pct_rank([-r["paro"] for r in elig if r["paro"] is not None])
+r_paroT = pct_rank([-r["paroT"] for r in elig if r["paroT"] is not None])
+r_costa = lambda km: 100 * math.exp(-km / 30)   # 0 km = 100; 30 km = 37; 100 km = 4
+r_ciu = lambda km: 100 * math.exp(-km / 35)     # distancia a una ciudad de más de 100.000 hab.
 r_g5, r_g1, r_abs = pct_rank([r["g5"] for r in elig]), pct_rank([r["g1"] for r in elig]), pct_rank([r["abs"] for r in elig])
 r_inv = pct_rank([r["inv"] for r in elig if r["inv"] is not None])
 r_neg = pct_rank([r["negPc"] for r in elig if r["negPc"] is not None])
 import math
 # escala logarítmica por tamaño (0 = sin universidad; ≥40 = gran ciudad universitaria): una sede minúscula no puntúa como Salamanca
-r_uni = lambda s: min(100.0, 100 * math.log1p(s) / math.log1p(40))
+r_uni0 = lambda s: min(100.0, 100 * math.log1p(s) / math.log1p(40))
+# alquiler a estudiantes: pesa que el campus esté cerca del centro (a pie o en bus corto). 0,3 km -> x0,96; 5 km -> x0,62; 15 km -> x0,43
+r_uni = lambda s, d: r_uni0(s) * (1.0 if d is None or s == 0 else 0.4 + 0.6 * math.exp(-d / 5))
 # Pesos nominales (suman 100 con todos los indicadores). Si falta alguno se reponderan los demás.
-# Se descartaron del índice por poco informativos: suelo urbano y precio de vivienda (provincial / solo >25.000 hab.; reflejan precio,
-# no crecimiento), proyección provincial (idéntica para todo el municipio de una provincia), solares (capacidad, no demanda) y la
-# lista curada de proyectos (muestra incompleta; sigue visible en la ficha). viv/pend/ae no existen en País Vasco ni Navarra (viv) o sin SIU.
-# Futuro (viv + pend + ae) = 26 %.
-W = {"g5": 0.17, "g1": 0.10, "abs": 0.12, "inv": 0.14, "neg": 0.08 if HIST else 0.04, "uni": 0.13,
-     "viv": 0.09, "pend": 0.12, "ae": 0.05}
+# Se descartaron del índice por poco informativos: suelo urbano y precio de la vivienda (reflejan precio, no crecimiento), proyección
+# provincial (igual para todo el municipio de una provincia), solares (capacidad, no demanda) y la lista curada de proyectos (muestra incompleta).
+# Población 23 + inversión 8 + universidad 9 + negocios 5 + futuro 20 (viv 7, pend 9, ae 4) + juventud 8 + paro 11 + mar 6 + ciudad 10.
+W = {"g5": 0.10, "g1": 0.06, "abs": 0.07, "inv": 0.08, "neg": 0.05 if HIST else 0.025, "uni": 0.09,
+     "viv": 0.07, "pend": 0.09, "ae": 0.04,
+     "juv": 0.08, "paro": 0.07, "paroT": 0.04, "cos": 0.06, "ciu": 0.10}
 for r in rows:
     if r["pop"] >= 1000:
-        parts = {"g5": r_g5(r["g5"]), "g1": r_g1(r["g1"]), "abs": r_abs(r["abs"]), "uni": r_uni(r["uniSize"])}
+        parts = {"g5": r_g5(r["g5"]), "g1": r_g1(r["g1"]), "abs": r_abs(r["abs"]), "uni": r_uni(r["uniSize"], r["uniD"]), "ciu": r_ciu(r["dc"])}
         if r["inv"] is not None:
             parts["inv"] = r_inv(r["inv"])
         if r["negPc"] is not None:
             parts["neg"] = r_neg(r["negPc"])
+        if r["m18"] is not None and r["edM"] is not None:
+            parts["juv"] = (r_m18(r["m18"]) + r_edM(-r["edM"])) / 2
+        if r["costa"] is not None and r["costa"] <= 60:  # el mar es un bonus: el interior no se penaliza (se reponderan los demás)
+            parts["cos"] = r_costa(r["costa"])
+        if r["paro"] is not None:
+            parts["paro"] = r_paro(-r["paro"])
+        if r["paroT"] is not None:
+            parts["paroT"] = r_paroT(-r["paroT"])
         if r["vivPm"] is not None:
             parts["viv"] = r_viv(r["vivPm"])
         if r["pendK"] is not None:
@@ -278,11 +315,15 @@ for r in rows:
         r["sNeg"] = round(parts["neg"]) if "neg" in parts else None
         r["sPop"] = round((W["g5"] * parts["g5"] + W["g1"] * parts["g1"] + W["abs"] * parts["abs"]) / (W["g5"] + W["g1"] + W["abs"]))
         r["sUni"] = round(parts["uni"])
+        for _k, _f in (("juv", "sJuv"), ("paro", "sParo"), ("paroT", "sParoT")):
+            r[_f] = round(parts[_k]) if _k in parts else None
+        r["sCos"] = round(parts["cos"]) if "cos" in parts else None
+        r["sCiu"] = round(parts["ciu"])
         r["sViv"] = round(parts["viv"]) if "viv" in parts else None
         r["sPend"] = round(parts["pend"]) if "pend" in parts else None
         r["sAe"] = round(parts["ae"]) if "ae" in parts else None
     else:
-        r["score"] = r["sInv"] = r["sNeg"] = r["sPop"] = r["sUni"] = r["sViv"] = r["sPend"] = r["sAe"] = r["fut"] = None
+        r["score"] = r["sJuv"] = r["sParo"] = r["sParoT"] = r["sCos"] = r["sCiu"] = r["sInv"] = r["sNeg"] = r["sPop"] = r["sUni"] = r["sViv"] = r["sPend"] = r["sAe"] = r["fut"] = None
     r["prov"] = PROV.get(r["p"], r["p"])
     del r["p"]
 

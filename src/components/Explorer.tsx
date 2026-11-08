@@ -32,6 +32,18 @@ type Row = {
   uni: number; // nº de universidades (Wikidata)
   uniOsm: number; // elementos de campus en OSM (proxy de tamaño)
   uniN: string | null; // nombres (hasta 3)
+  uniD: number | null; // km del centro del municipio al campus más cercano
+  m18: number | null; // % menores de 18 años
+  m65: number | null; // % de 65 y más
+  edM: number | null; // edad media
+  costa: number | null; // km al mar
+  paro: number | null; // paro registrado / población de 18-64 (%)
+  paroT: number | null; // variación interanual del paro, en puntos
+  sJuv: number | null;
+  sParo: number | null;
+  sParoT: number | null;
+  sCos: number | null;
+  sCiu: number | null;
   suelo: number | null; // €/m² suelo urbano (provincia y tramo de población)
   sueloG: number | null; // variación % en 5 años
   sPop: number | null; // percentil población (compuesto)
@@ -88,7 +100,6 @@ function zoneVerdict(z: number | null): { label: string; emoji: string; cls: str
 }
 
 const PROJ_ICON: Record<string, string> = { industria: "🏭", datos: "🖥️", ferrocarril: "🚄", sanidad: "🏥", vivienda: "🏘️" };
-const PROJ_LABEL: Record<string, string> = { industria: "Industria", datos: "Centro de datos", ferrocarril: "Ferrocarril", sanidad: "Sanidad", vivienda: "Vivienda" };
 type Data = { years: [number, number]; negHist: boolean; proyYears: [number, number] | null; zref: ZRef; rows: Row[] };
 // Sectores de desarrollo del SIU (se cargan al abrir una ficha): [nombre, clase, uso, hectáreas, edificabilidad m² de techo]
 type SectInfo = { s: [string, string, string | null, number | null, number | null][]; n: number; r: number; rha: number };
@@ -184,16 +195,16 @@ function googleUrl(r: Row): string {
 }
 
 // ---- Factores del índice: peso nominal, percentil (0-100) y explicación con datos ----
-type Factor = { k: string; label: string; w: number; v: number | null; hint: string; group: "past" | "future" };
+type Factor = { k: string; label: string; w: number; v: number | null; hint: string; group: "past" | "future" | "context" };
 function buildFactors(s: Row, d: Data | null, hist: boolean): Factor[] {
   const hasU = s.uni > 0 || s.uniOsm >= 2;
   const yrs = (d?.years[1] ?? 0) - (d?.years[0] ?? 0);
   return [
-    { k: "pop", label: "Población", w: 0.39, v: s.sPop, group: "past", hint: `${sgn(s.g5)}% en ${yrs} años (${sgn(s.abs)} personas); último año ${sgn(s.g1)}%` },
+    { k: "pop", label: "Población", w: 0.23, v: s.sPop, group: "past", hint: `${sgn(s.g5)}% en ${yrs} años (${sgn(s.abs)} personas); último año ${sgn(s.g1)}%` },
     {
       k: "inv",
       label: "Inversión pública",
-      w: 0.14,
+      w: 0.08,
       v: s.sInv,
       group: "past",
       hint:
@@ -203,11 +214,11 @@ function buildFactors(s: Row, d: Data | null, hist: boolean): Factor[] {
             : `Sin dato 2024; media ${fmt.format(s.inv)} €/hab.`
           : `${fmt.format(s.inv24)} €/hab. en 2024 (${fmt.format(Math.round((s.invT ?? 0) / 1000))} mil € en total)`,
     },
-    { k: "uni", label: "Universidad", w: 0.13, v: s.sUni, group: "past", hint: hasU ? `${s.uniN ?? "Campus detectado"}${s.uni > 3 ? ` y ${s.uni - 3} más` : ""}` : "No se ha detectado universidad" },
+    { k: "uni", label: "Universidad", w: 0.09, v: s.sUni, group: "past", hint: hasU ? `${s.uniN ?? "Campus detectado"}${s.uni > 3 ? ` y ${s.uni - 3} más` : ""}${s.uniD === null ? "" : `; campus a ${fmt1.format(s.uniD)} km del centro`}` : "No se ha detectado universidad" },
     {
       k: "neg",
       label: hist ? "Negocios nuevos" : "Comercios",
-      w: hist ? 0.08 : 0.04,
+      w: hist ? 0.05 : 0.025,
       v: s.sNeg,
       group: "past",
       hint:
@@ -218,7 +229,7 @@ function buildFactors(s: Row, d: Data | null, hist: boolean): Factor[] {
     {
       k: "pend",
       label: "Vivienda prevista en el planeamiento",
-      w: 0.12,
+      w: 0.09,
       v: s.sPend,
       group: "future",
       hint:
@@ -229,7 +240,7 @@ function buildFactors(s: Row, d: Data | null, hist: boolean): Factor[] {
     {
       k: "viv",
       label: "Obra nueva reciente",
-      w: 0.09,
+      w: 0.07,
       v: s.sViv,
       group: "future",
       hint: s.vivN === null ? "Sin datos (el Catastro no cubre País Vasco ni Navarra)" : `${sgn(s.vivN)} viviendas en 5 años (${sgn(s.vivPm ?? 0)} por 1.000 hab.), Catastro 2021–2026`,
@@ -237,10 +248,50 @@ function buildFactors(s: Row, d: Data | null, hist: boolean): Factor[] {
     {
       k: "ae",
       label: "Suelo previsto para actividad económica",
-      w: 0.05,
+      w: 0.04,
       v: s.sAe,
       group: "future",
       hint: s.aeP === null ? "Sin datos del SIU" : `${fmt.format(Math.round(s.aeP * s.pop))} m² edificables pendientes de industria, comercio y oficinas (${fmt.format(s.aeP)} m²/hab.)`,
+    },
+    {
+      k: "juv",
+      label: "Población joven",
+      w: 0.08,
+      v: s.sJuv,
+      group: "context",
+      hint: s.m18 === null || s.edM === null ? "Sin datos" : `Edad media ${fmt1.format(s.edM)} años; ${fmt1.format(s.m18)}% menores de 18 y ${fmt1.format(s.m65 ?? 0)}% de 65 o más (INE)`,
+    },
+    {
+      k: "paro",
+      label: "Paro",
+      w: 0.07,
+      v: s.sParo,
+      group: "context",
+      hint: s.paro === null ? "Sin datos" : `${fmt1.format(s.paro)}% de la población de 18 a 64 años está en paro registrado (SEPE, septiembre)`,
+    },
+    {
+      k: "paroT",
+      label: "Evolución del paro",
+      w: 0.04,
+      v: s.sParoT,
+      group: "context",
+      hint: s.paroT === null ? "Sin datos" : `${sgn(s.paroT)} puntos en un año (negativo = baja el paro)`,
+    },
+    {
+      k: "cos",
+      label: "Cerca del mar",
+      w: 0.06,
+      v: s.sCos,
+      group: "context",
+      hint: s.costa === null ? "Sin datos" : s.costa > 60 ? `A ${fmt.format(Math.round(s.costa))} km del mar: no puntúa ni penaliza` : `A ${fmt1.format(s.costa)} km del mar`,
+    },
+    {
+      k: "ciu",
+      label: "Cerca de una ciudad grande",
+      w: 0.1,
+      v: s.sCiu,
+      group: "context",
+      hint: s.dc === 0 ? "Es una ciudad de más de 100.000 habitantes" : `A ${fmt.format(s.dc)} km de ${s.cn} (más de 100.000 hab.), en línea recta`,
     },
   ];
 }
@@ -316,25 +367,26 @@ function ZonePanel({ sel, zref }: { sel: Row; zref: ZRef | undefined }) {
           sub={`Mediana de los municipios: ${fmt1.format(zref?.pob ?? 0)}% (INE).`}
         />
       </ul>
-      {nd && (
-        <p className="mt-2 rounded bg-white/70 p-2 text-xs font-medium text-ink">
-          Sin dato de seguridad municipal no doy veredicto: Interior solo publica criminalidad en las capitales y en los municipios de más de 20.000
-          habitantes, y prefiero no valorar antes que dar por buena una zona sin evidencia suficiente. La renta, la pobreza y la okupación provincial se
-          muestran solo como contexto.
-        </p>
-      )}
+      {nd && <p className="mt-2 text-xs font-medium text-ink">Sin seguridad municipal (solo capitales y más de 20.000 hab.) no doy veredicto.</p>}
       {alerts.length > 0 && (
         <p className="mt-2 rounded bg-white/70 p-2 text-xs font-medium text-ink">
           ⚠ Señales de alerta: {alerts.join("; ")}.
         </p>
       )}
-      <p className="mt-2 text-xs text-muted">
-        Puntuación orientativa (seguridad 30 %, renta 30 %, pobreza 30 %, okupación provincial 10 %). Solo se valora si hay seguridad municipal; si falta otro dato, se reparten los demás. Son
-        estadísticas oficiales del municipio entero: no describen calles ni urbanizaciones concretas, y la criminalidad incluye hechos contra
-        visitantes, por lo que infla los destinos turísticos. Si te preocupan las casas ocupadas, pregunta también en el ayuntamiento y a la policía
-        local. No entra en el índice de crecimiento.
-      </p>
+      <p className="mt-2 text-xs text-muted">Seguridad 30 %, renta 30 %, pobreza 30 %, okupación provincial 10 %. Datos del municipio entero, no de calles concretas. No entra en el índice.</p>
     </section>
+  );
+}
+
+function Fact({ label, value, dot }: { label: string; value: string; dot?: string }) {
+  return (
+    <div className="rounded-lg border border-line bg-white px-3 py-2">
+      <div className="text-xs text-muted">{label}</div>
+      <div className="mt-0.5 flex items-center gap-1.5 text-sm font-semibold text-ink">
+        {dot && <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: dot }} />}
+        {value}
+      </div>
+    </div>
   );
 }
 
@@ -384,9 +436,8 @@ function Detail({
   const pros = calc.filter((f) => f.delta !== null && f.delta >= 0.4).sort((a, b) => (b.delta ?? 0) - (a.delta ?? 0)).slice(0, 5);
   const cons = calc.filter((f) => f.delta !== null && f.delta <= -0.4).sort((a, b) => (a.delta ?? 0) - (b.delta ?? 0)).slice(0, 5);
   const maxAbs = Math.max(1, ...[...pros, ...cons].map((f) => Math.abs(f.delta ?? 0)));
-  const missing = factors.filter((f) => f.v === null && !["vt", "proj"].includes(f.k)).map((f) => f.label);
-  const diff = sel.score === null ? 0 : sel.score - 50;
   const si = sect?.[sel.id];
+  const yrsN = (data?.years[1] ?? 0) - (data?.years[0] ?? 0);
   const detailWeight = (w: number) => `${fmt1.format(w * 100).replace(",0", "")}%`;
 
   const renderList = (items: typeof calc, sign: 1 | -1) => (
@@ -403,7 +454,6 @@ function Detail({
           <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-line">
             <div className={`h-full rounded-full ${sign > 0 ? "bg-forest" : "bg-brick"}`} style={{ width: `${Math.max(6, (Math.abs(f.delta ?? 0) / maxAbs) * 100)}%` }} />
           </div>
-          <div className="mt-1 text-xs text-muted">{f.hint}</div>
         </li>
       ))}
     </ul>
@@ -420,7 +470,7 @@ function Detail({
         </button>
       </div>
 
-      <div className="space-y-5 p-4">
+      <div className="space-y-4 p-4">
         <div>
           <h2 className="text-[24px] font-semibold leading-tight tracking-tight">{sel.n}</h2>
           <p className="text-sm text-muted">
@@ -430,110 +480,97 @@ function Detail({
 
         <div className="grid grid-cols-2 gap-3">
           <ScoreCard title="Índice de crecimiento" v={sel.score} rank={rankG} total={total} />
-          <ScoreCard title="Perspectivas de futuro (35 % del índice)" v={sel.fut} rank={rankF} total={total} />
+          <ScoreCard title="Futuro (20 % del índice)" v={sel.fut} rank={rankF} total={total} />
         </div>
 
-        <ZonePanel sel={sel} zref={data?.zref} />
+        <div className="grid grid-cols-2 gap-2">
+          <Fact label={`Población en ${yrsN} años`} value={`${sgn(sel.g5)}%`} />
+          <Fact
+            label="Universidad"
+            value={!(sel.uni > 0 || sel.uniOsm >= 2) ? "No hay" : sel.uniD === null ? "Sí" : `a ${fmt1.format(sel.uniD)} km del centro`}
+          />
+          <Fact label="Vivienda prevista" value={sel.pendK === null ? "Sin dato" : `${fmt.format(sel.pendK)} por 1.000 hab.`} />
+          <Fact label="Inversión pública" value={sel.inv24 === null ? "Sin dato" : `${fmt.format(sel.inv24)} €/hab.`} />
+          <Fact label="Zona" value={sel.zona === null ? "Sin valorar" : `${zoneShort(sel.zona)} (${sel.zona}/100)`} dot={zoneDot(sel.zona)} />
+          <Fact label="Renta por persona" value={sel.renta === null ? "Sin dato" : `${fmt.format(sel.renta)} €`} />
+        </div>
 
-        <div className="rounded-lg border border-line bg-white p-3">
-          <div className="text-sm font-semibold text-ink">Casas en venta en {sel.n}</div>
-          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
-            <a
-              href={idealistaUrl(sel)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-lg bg-forest px-4 py-2 text-sm font-semibold text-white shadow hover:bg-forest-dark"
-            >
-              Ver en idealista ↗
-            </a>
-            <a href={googleUrl(sel)} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-forest underline">
-              Si no abre la zona, buscar en Google
-            </a>
-          </div>
-          <p className="mt-2 text-xs text-muted">
-            El enlace se construye con el nombre del municipio y su provincia; no he podido comprobarlo en idealista (bloquea las consultas automáticas) y en
-            algunos municipios puede no coincidir con su dirección.
-          </p>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <a
+            href={idealistaUrl(sel)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-lg bg-forest px-4 py-2 text-sm font-semibold text-white shadow hover:bg-forest-dark"
+          >
+            Ver casas en idealista ↗
+          </a>
+          <a href={googleUrl(sel)} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-forest underline">
+            Buscar en Google
+          </a>
         </div>
 
         <section>
-          <h3 className="text-base font-semibold">¿Por qué tiene esta puntuación?</h3>
-          {sel.score !== null && (
-            <p className="mt-1 text-sm text-muted">
-              La puntuación mezcla {factors.filter((f) => f.v !== null).length} indicadores comparando el municipio con los demás (percentil de 0 a 100; 50 es un
-              municipio medio). <b>{sel.n}</b> saca <b>{sel.score}</b>: {fmt1.format(Math.abs(diff))} puntos {diff >= 0 ? "por encima" : "por debajo"} de un municipio
-              medio. Las barras muestran cuántos puntos suma o resta cada indicador respecto a ese municipio medio.
-            </p>
-          )}
-
+          <h3 className="text-base font-semibold">Qué lo empuja y qué lo frena</h3>
+          <div className="mt-3">
+            {pros.length > 0 ? renderList(pros.slice(0, 3), 1) : <p className="text-sm text-muted">Ningún indicador destaca por encima de la media.</p>}
+          </div>
           <div className="mt-4">
-            <div className="mb-2 text-xs font-semibold text-forest">Lo que empuja su crecimiento</div>
-            {pros.length > 0 ? renderList(pros, 1) : <p className="text-sm text-muted">Ningún indicador destaca por encima de la media.</p>}
+            {cons.length > 0 ? renderList(cons.slice(0, 3), -1) : <p className="text-sm text-muted">Ningún indicador queda claramente por debajo de la media.</p>}
           </div>
-
-          <div className="mt-5">
-            <div className="mb-2 text-xs font-semibold text-brick">Lo que lo frena o no aporta</div>
-            {cons.length > 0 ? renderList(cons, -1) : <p className="text-sm text-muted">Ningún indicador queda claramente por debajo de la media.</p>}
-          </div>
-
-          {(missing.length > 0 || (sel.pendK ?? 0) >= 3000) && (
-            <div className="mt-4 space-y-1.5 rounded-lg border border-line bg-gold-soft p-3 text-xs text-ink">
-              {(sel.pendK ?? 0) >= 3000 && (
-                <p>
-                  ⚠ El planeamiento prevé muchísimas más viviendas que el tamaño actual del municipio ({fmt.format(sel.pendK ?? 0)} por 1.000 hab.): suele
-                  ser un plan antiguo o inviable, así que conviene no fiarse de ese indicador.
-                </p>
-              )}
-              {missing.length > 0 && <p>Sin datos de: {missing.join(", ")}. Su peso se reparte entre los demás indicadores.</p>}
-            </div>
+          {(sel.pendK ?? 0) >= 3000 && (
+            <p className="mt-3 rounded-lg bg-gold-soft p-2 text-xs text-ink">⚠ El planeamiento prevé muchísimas viviendas para su tamaño: suele ser un plan antiguo o inviable.</p>
           )}
         </section>
 
-        {sel.proj && sel.proj.length > 0 && (
-          <div className="space-y-2 rounded-lg border border-line bg-gold-soft p-3">
-            <div className="text-xs font-semibold text-ink">Proyectos concretos (lista curada, no entra en el índice)</div>
-            {sel.proj.map((p) => (
-              <div key={p.n} className="text-sm">
-                <div className="font-semibold text-ink">
-                  {PROJ_ICON[p.t] ?? "🏗️"} {p.n}
-                </div>
-                <div className="text-muted">
-                  <span className="font-medium">{PROJ_LABEL[p.t] ?? p.t}.</span> {p.e}{" "}
-                  <a href={p.u} target="_blank" rel="noopener noreferrer" className="font-medium text-forest underline">
-                    Fuente ↗
-                  </a>
-                </div>
-              </div>
-            ))}
-            <div className="text-xs text-muted">Lista curada a partir de prensa: no es exhaustiva y el estado puede haber cambiado.</div>
+        <details className="rounded-lg border border-edge">
+          <summary className="cursor-pointer px-3 py-2.5 text-sm font-semibold text-ink">Zona: seguridad, okupación, renta y pobreza</summary>
+          <div className="border-t border-line p-3">
+            <ZonePanel sel={sel} zref={data?.zref} />
           </div>
+        </details>
+
+        {sel.proj && sel.proj.length > 0 && (
+          <details className="rounded-lg border border-edge" open>
+            <summary className="cursor-pointer px-3 py-2.5 text-sm font-semibold text-ink">Proyectos concretos ({sel.proj.length})</summary>
+            <div className="space-y-2 border-t border-line p-3">
+              {sel.proj.map((p) => (
+                <div key={p.n} className="text-sm">
+                  <div className="font-semibold text-ink">
+                    {PROJ_ICON[p.t] ?? "🏗️"} {p.n}
+                  </div>
+                  <div className="text-muted">
+                    {p.e}{" "}
+                    <a href={p.u} target="_blank" rel="noopener noreferrer" className="font-medium text-forest underline">
+                      Fuente ↗
+                    </a>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </details>
         )}
 
-        {!sect ? (
-          <div className="text-xs text-muted">Cargando sectores del planeamiento…</div>
-        ) : si && (si.s.length > 0 || si.r > 0) ? (
-          <div className="rounded-lg border border-edge bg-white p-3">
-            <div className="text-xs font-semibold text-muted">Sectores del planeamiento (SIU)</div>
-            {si.s.length > 0 && (
-              <ul className="mt-2 divide-y divide-line text-sm">
-                {si.s.map(([nombre, clase, uso, ha, edif], i) => (
-                  <li key={i} className="py-1.5">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="font-semibold text-ink">{nombre}</span>
-                      <span className="shrink-0 tabular-nums text-muted">{ha === null ? "" : `${fmt.format(ha)} ha`}</span>
-                    </div>
-                    <div className="text-xs text-muted">{[uso, clase, edif === null ? null : `${fmt.format(edif)} m² edificables`].filter(Boolean).join(" · ")}</div>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="mt-2 text-xs text-muted">
-              {si.n > si.s.length ? `Mostrando los ${si.s.length} mayores de ${fmt.format(si.n)} sectores con nombre. ` : si.n > 0 ? `${si.n} sectores con nombre. ` : ""}
-              {si.r > 0 ? `Además, ${fmt.format(si.r)} fragmentos sin nombre (${fmt.format(si.rha)} ha). ` : ""}
-              Son planes sobre el papel: el SIU no indica si el sector se ha urbanizado ni su calendario, ni cuántas viviendas prevé cada uno.
+        {si && (si.s.length > 0 || si.r > 0) && (
+          <details className="rounded-lg border border-edge">
+            <summary className="cursor-pointer px-3 py-2.5 text-sm font-semibold text-ink">Sectores del planeamiento ({si.n || si.s.length})</summary>
+            <div className="border-t border-line p-3">
+              {si.s.length > 0 && (
+                <ul className="divide-y divide-line text-sm">
+                  {si.s.map(([nombre, clase, uso, ha, edif], i) => (
+                    <li key={i} className="py-1.5">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="font-semibold text-ink">{nombre}</span>
+                        <span className="shrink-0 tabular-nums text-muted">{ha === null ? "" : `${fmt.format(ha)} ha`}</span>
+                      </div>
+                      <div className="text-xs text-muted">{[uso, clase, edif === null ? null : `${fmt.format(edif)} m² edificables`].filter(Boolean).join(" · ")}</div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="mt-2 text-xs text-muted">Planes sobre el papel (SIU): no indican si se urbanizó ni el calendario.</div>
             </div>
-          </div>
-        ) : null}
+          </details>
+        )}
 
         <details className="rounded-lg border border-edge">
           <summary className="cursor-pointer px-3 py-2.5 text-sm font-semibold text-ink">Detalle de los {factors.length} indicadores</summary>
@@ -541,6 +578,12 @@ function Detail({
             <div className="text-xs font-semibold text-muted">Lo ya ocurrido</div>
             {factors
               .filter((f) => f.group === "past")
+              .map((f) => (
+                <Bar key={f.k} label={f.label} value={f.v} weight={detailWeight(f.w)} hint={f.hint} />
+              ))}
+            <div className="border-t border-line pt-3 text-xs font-semibold text-muted">Contexto y accesibilidad</div>
+            {factors
+              .filter((f) => f.group === "context")
               .map((f) => (
                 <Bar key={f.k} label={f.label} value={f.v} weight={detailWeight(f.w)} hint={f.hint} />
               ))}
@@ -833,7 +876,7 @@ export default function Explorer() {
   }
 
   const hist = data?.negHist ?? false;
-  const wNeg = hist ? 8 : 4;
+  const wNeg = hist ? 5 : 2.5;
   const hasUni = (r: Row) => r.uni > 0 || r.uniOsm >= 2;
   // Posición de cada municipio en los dos rankings (entre los de 1.000 hab. o más)
   const ranks = useMemo(() => {
@@ -950,7 +993,7 @@ export default function Explorer() {
                 className="mt-1 h-2 w-full cursor-pointer accent-forest"
               />
               <p className="mt-1 text-xs font-normal text-muted">
-                El futuro ya cuenta un 26 % del índice; aquí puedes exigir además un mínimo propio (planeamiento, obra nueva y suelo de actividad).
+                El futuro ya cuenta un 20 % del índice; aquí puedes exigir además un mínimo propio (planeamiento, obra nueva y suelo de actividad).
               </p>
             </div>
           </>
@@ -1148,25 +1191,35 @@ export default function Explorer() {
             <p>Puntuación 0-100 como media ponderada de percentiles entre municipios de 1.000 hab. o más. Si falta un indicador se reponderan los demás.</p>
             <ul className="list-disc space-y-1 pl-5">
               <li>
-                <b>39 % población</b>: crecimiento total, último año y personas ganadas (INE).
+                <b>23 % población</b>: crecimiento total, último año y personas ganadas (INE).
               </li>
               <li>
-                <b>14 % inversión pública</b> por habitante: capítulo 6, media 2019/2024 (Hacienda).
+                <b>8 % inversión pública</b> por habitante: capítulo 6, media 2019/2024 (Hacienda).
               </li>
               <li>
-                <b>13 % universidad</b>: tamaño del campus (Wikidata y OpenStreetMap).
+                <b>9 % universidad</b>: tamaño del campus, rebajado si está lejos del centro (Wikidata y OpenStreetMap).
               </li>
               <li>
                 <b>{wNeg} % {hist ? "negocios nuevos" : "comercios"}</b>: supermercados y gimnasios por habitante
                 {hist ? ", nov-2020 frente a hoy" : ", estado actual"} (OpenStreetMap).
               </li>
               <li>
-                <b>26 % futuro</b>: 12 % vivienda prevista en el planeamiento y 5 % suelo para actividad económica (SIU del Ministerio de Vivienda) y 9 % obra nueva de los últimos 5 años (Catastro).
+                <b>20 % futuro</b>: 9 % vivienda prevista en el planeamiento y 4 % suelo para actividad económica (SIU) y 7 % obra nueva de los últimos 5 años (Catastro).
+              </li>
+              <li>
+                <b>8 % población joven</b>: edad media y % de menores de 18 años (INE, Atlas de renta).
+              </li>
+              <li>
+                <b>11 % empleo</b>: 7 % paro registrado sobre la población de 18 a 64 años y 4 % su variación en un año (SEPE).
+              </li>
+              <li>
+                <b>10 % cerca de una ciudad grande</b> (más de 100.000 hab.) y <b>6 % cerca del mar</b>: distancia en línea recta. Si está a más de 60 km del
+                mar, ese 6 % no cuenta ni penaliza.
               </li>
             </ul>
             <p>
               Las <b>perspectivas de futuro</b> (planeamiento y obra nueva) ya forman parte del
-              índice: pesan un 26 %. En el filtro &quot;Crecimiento&quot; puedes exigir además un mínimo de futuro.
+              índice: pesan un 20 %. En el filtro &quot;Crecimiento&quot; puedes exigir además un mínimo de futuro.
             </p>
             <p className="text-xs text-muted">
               <b>Planeamiento (SIU):</b> son viviendas previstas y aún no construidas en áreas de desarrollo urbanístico, según el planeamiento vigente
