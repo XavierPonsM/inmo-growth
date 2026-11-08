@@ -188,13 +188,12 @@ type Factor = { k: string; label: string; w: number; v: number | null; hint: str
 function buildFactors(s: Row, d: Data | null, hist: boolean): Factor[] {
   const hasU = s.uni > 0 || s.uniOsm >= 2;
   const yrs = (d?.years[1] ?? 0) - (d?.years[0] ?? 0);
-  const py = d?.proyYears;
   return [
-    { k: "pop", label: "Población", w: 0.32, v: s.sPop, group: "past", hint: `${sgn(s.g5)}% en ${yrs} años (${sgn(s.abs)} personas); último año ${sgn(s.g1)}%` },
+    { k: "pop", label: "Población", w: 0.39, v: s.sPop, group: "past", hint: `${sgn(s.g5)}% en ${yrs} años (${sgn(s.abs)} personas); último año ${sgn(s.g1)}%` },
     {
       k: "inv",
       label: "Inversión pública",
-      w: 0.11,
+      w: 0.14,
       v: s.sInv,
       group: "past",
       hint:
@@ -204,11 +203,11 @@ function buildFactors(s: Row, d: Data | null, hist: boolean): Factor[] {
             : `Sin dato 2024; media ${fmt.format(s.inv)} €/hab.`
           : `${fmt.format(s.inv24)} €/hab. en 2024 (${fmt.format(Math.round((s.invT ?? 0) / 1000))} mil € en total)`,
     },
-    { k: "uni", label: "Universidad", w: 0.11, v: s.sUni, group: "past", hint: hasU ? `${s.uniN ?? "Campus detectado"}${s.uni > 3 ? ` y ${s.uni - 3} más` : ""}` : "No se ha detectado universidad" },
+    { k: "uni", label: "Universidad", w: 0.13, v: s.sUni, group: "past", hint: hasU ? `${s.uniN ?? "Campus detectado"}${s.uni > 3 ? ` y ${s.uni - 3} más` : ""}` : "No se ha detectado universidad" },
     {
       k: "neg",
       label: hist ? "Negocios nuevos" : "Comercios",
-      w: hist ? 0.07 : 0.035,
+      w: hist ? 0.08 : 0.04,
       v: s.sNeg,
       group: "past",
       hint:
@@ -217,25 +216,9 @@ function buildFactors(s: Row, d: Data | null, hist: boolean): Factor[] {
           : `${s.sup} supermercados${s.dS === null ? "" : ` (${sgn(s.dS)} desde 2020)`} y ${s.gym} gimnasios${s.dG === null ? "" : ` (${sgn(s.dG)})`}`,
     },
     {
-      k: "suelo",
-      label: "Suelo urbano",
-      w: 0.02,
-      v: s.sSuelo,
-      group: "past",
-      hint: s.suelo === null ? "Sin datos" : `${fmt.format(s.suelo)} €/m²${s.sueloG === null ? "" : ` (${sgn(s.sueloG)}% en 5 años)`}; dato de su provincia y tramo de población`,
-    },
-    {
-      k: "vt",
-      label: "Precio de la vivienda",
-      w: 0.02,
-      v: s.sVt,
-      group: "past",
-      hint: s.vt === null ? "Solo existe en municipios de más de 25.000 hab." : `Valor tasado ${fmt.format(s.vt)} €/m²${s.vtG === null ? "" : ` (${sgn(s.vtG)}% en 5 años)`}; ${fmt.format(s.vtN ?? 0)} tasaciones en el último año`,
-    },
-    {
       k: "pend",
       label: "Vivienda prevista en el planeamiento",
-      w: 0.1,
+      w: 0.12,
       v: s.sPend,
       group: "future",
       hint:
@@ -246,42 +229,18 @@ function buildFactors(s: Row, d: Data | null, hist: boolean): Factor[] {
     {
       k: "viv",
       label: "Obra nueva reciente",
-      w: 0.08,
+      w: 0.09,
       v: s.sViv,
       group: "future",
       hint: s.vivN === null ? "Sin datos (el Catastro no cubre País Vasco ni Navarra)" : `${sgn(s.vivN)} viviendas en 5 años (${sgn(s.vivPm ?? 0)} por 1.000 hab.), Catastro 2021–2026`,
     },
     {
-      k: "proy",
-      label: "Proyección provincial",
-      w: 0.06,
-      v: s.sProy,
-      group: "future",
-      hint: s.proy === null ? "Sin datos" : `${sgn(s.proy)}% de población prevista en su provincia ${py?.[0]}–${py?.[1]} (INE, si siguen las tendencias)`,
-    },
-    {
-      k: "solar",
-      label: "Suelo disponible (solares)",
-      w: 0.04,
-      v: s.sSolar,
-      group: "future",
-      hint: s.solarN === null ? "Sin datos (el Catastro no cubre País Vasco ni Navarra)" : `${fmt.format(s.solarN)} solares, ${fmt.format(s.solarPc ?? 0)} m²/hab., ${s.solarSh}% del suelo urbano (capacidad, no demanda)`,
-    },
-    {
       k: "ae",
       label: "Suelo previsto para actividad económica",
-      w: 0.04,
+      w: 0.05,
       v: s.sAe,
       group: "future",
       hint: s.aeP === null ? "Sin datos del SIU" : `${fmt.format(Math.round(s.aeP * s.pop))} m² edificables pendientes de industria, comercio y oficinas (${fmt.format(s.aeP)} m²/hab.)`,
-    },
-    {
-      k: "proj",
-      label: "Proyectos concretos",
-      w: 0.03,
-      v: s.proj && s.proj.length > 0 ? 100 : null,
-      group: "future",
-      hint: s.proj && s.proj.length > 0 ? s.proj.map((p) => p.n).join("; ") : "Ninguno en la lista curada (no penaliza)",
     },
   ];
 }
@@ -532,7 +491,7 @@ function Detail({
 
         {sel.proj && sel.proj.length > 0 && (
           <div className="space-y-2 rounded-lg border border-line bg-gold-soft p-3">
-            <div className="text-xs font-semibold text-ink">Proyectos concretos (bonus del 3 %)</div>
+            <div className="text-xs font-semibold text-ink">Proyectos concretos (lista curada, no entra en el índice)</div>
             {sel.proj.map((p) => (
               <div key={p.n} className="text-sm">
                 <div className="font-semibold text-ink">
@@ -874,7 +833,7 @@ export default function Explorer() {
   }
 
   const hist = data?.negHist ?? false;
-  const wNeg = hist ? 7 : 4;
+  const wNeg = hist ? 8 : 4;
   const hasUni = (r: Row) => r.uni > 0 || r.uniOsm >= 2;
   // Posición de cada municipio en los dos rankings (entre los de 1.000 hab. o más)
   const ranks = useMemo(() => {
@@ -991,7 +950,7 @@ export default function Explorer() {
                 className="mt-1 h-2 w-full cursor-pointer accent-forest"
               />
               <p className="mt-1 text-xs font-normal text-muted">
-                El futuro ya cuenta un 35 % del índice; aquí puedes exigir además un mínimo propio (planeamiento, obra nueva, proyección provincial, suelo y proyectos).
+                El futuro ya cuenta un 26 % del índice; aquí puedes exigir además un mínimo propio (planeamiento, obra nueva y suelo de actividad).
               </p>
             </div>
           </>
@@ -1189,44 +1148,32 @@ export default function Explorer() {
             <p>Puntuación 0-100 como media ponderada de percentiles entre municipios de 1.000 hab. o más. Si falta un indicador se reponderan los demás.</p>
             <ul className="list-disc space-y-1 pl-5">
               <li>
-                <b>32 % población</b>: crecimiento total, último año y personas ganadas (INE).
+                <b>39 % población</b>: crecimiento total, último año y personas ganadas (INE).
               </li>
               <li>
-                <b>11 % inversión pública</b> por habitante: capítulo 6, media 2019/2024 (Hacienda).
+                <b>14 % inversión pública</b> por habitante: capítulo 6, media 2019/2024 (Hacienda).
               </li>
               <li>
-                <b>11 % universidad</b>: tamaño del campus (Wikidata y OpenStreetMap).
+                <b>13 % universidad</b>: tamaño del campus (Wikidata y OpenStreetMap).
               </li>
               <li>
                 <b>{wNeg} % {hist ? "negocios nuevos" : "comercios"}</b>: supermercados y gimnasios por habitante
                 {hist ? ", nov-2020 frente a hoy" : ", estado actual"} (OpenStreetMap).
               </li>
               <li>
-                <b>2 % suelo urbano</b>: variación en 5 años del €/m². Solo existe por provincia y tramo de población (Ministerio de Transportes).
-              </li>
-              <li>
-                <b>2 % precio de la vivienda</b>: variación en 5 años del valor tasado (€/m²). Solo para los 283 municipios de más de 25.000 hab.
-                (Ministerio de Transportes); en el resto no se aplica y se reponderan los demás.
-              </li>
-              <li>
-                <b>32 % futuro</b>: 10 % vivienda prevista en el planeamiento y 4 % suelo para actividad económica (SIU del Ministerio de Vivienda),
-                8 % obra nueva de los últimos 5 años y 4 % solares por habitante (Catastro) y 6 % proyección de población de la provincia{" "}
-                {data?.proyYears?.[0]}–{data?.proyYears?.[1]} (INE, dato provincial).
-              </li>
-              <li>
-                <b>3 % proyectos concretos</b>: bonus para los municipios con algún proyecto de la lista curada; sin proyecto no penaliza.
+                <b>26 % futuro</b>: 12 % vivienda prevista en el planeamiento y 5 % suelo para actividad económica (SIU del Ministerio de Vivienda) y 9 % obra nueva de los últimos 5 años (Catastro).
               </li>
             </ul>
             <p>
-              Las <b>perspectivas de futuro</b> (planeamiento, obra nueva, proyección provincial, suelo disponible y proyectos) ya forman parte del
-              índice: pesan un 35 %. En el filtro &quot;Crecimiento&quot; puedes exigir además un mínimo de futuro.
+              Las <b>perspectivas de futuro</b> (planeamiento y obra nueva) ya forman parte del
+              índice: pesan un 26 %. En el filtro &quot;Crecimiento&quot; puedes exigir además un mínimo de futuro.
             </p>
             <p className="text-xs text-muted">
               <b>Planeamiento (SIU):</b> son viviendas previstas y aún no construidas en áreas de desarrollo urbanístico, según el planeamiento vigente
               que aportan las comunidades autónomas (cubre 5.898 municipios; fechas de 2020 a 2025). Son planes sobre el papel: muchos son
               antiguos, del boom inmobiliario, y no se llegarán a construir. La escala satura en torno a 2.000 viviendas pendientes por cada 1.000
               habitantes y la ficha avisa cuando el plan supera 3 por habitante. Los 15 proyectos marcados con 🏗️ son una lista curada a mano a
-              partir de prensa, con su fuente: no es exhaustiva, por eso su bonus es pequeño. El Catastro no cubre País Vasco ni Navarra.
+              partir de prensa, con su fuente: no es exhaustiva, por eso no entra en el índice (solo se muestra en la ficha). El Catastro no cubre País Vasco ni Navarra.
             </p>
             <p className="text-xs text-muted">
               <b>Calidad de la zona</b> (buena ≥60, media 40–60, por debajo de la media &lt;40): seguridad (Interior, solo capitales y municipios de más de 20.000

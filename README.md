@@ -17,14 +17,15 @@ Media ponderada de percentiles entre los municipios de 1.000 habitantes o más. 
 
 | Peso | Indicador | Fuente |
 |---|---|---|
-| 32 % | Población: crecimiento total, último año y personas ganadas | INE (padrón) |
-| 11 % | Inversión pública por habitante (capítulo 6, media 2019/2024) | Ministerio de Hacienda (CONPREL) |
-| 11 % | Universidad: tamaño del campus | Wikidata y OpenStreetMap |
-| 7 % | Negocios nuevos: supermercados y gimnasios por habitante (nov-2020 frente a hoy) | OpenStreetMap |
-| 2 % | Suelo urbano: variación del €/m² (solo por provincia y tramo de población) | Ministerio de Transportes |
-| 2 % | Precio de la vivienda: variación del valor tasado (municipios de más de 25.000 hab.) | Ministerio de Transportes |
-| 32 % | **Futuro**: vivienda prevista en el planeamiento (10), obra nueva (8), proyección provincial (6), solares (4), suelo para actividad económica (4) | SIU (Ministerio de Vivienda), Catastro, INE |
-| 3 % | Proyectos concretos (lista curada a mano, con fuente) | Prensa |
+| 39 % | Población: crecimiento total, último año y personas ganadas | INE (padrón) |
+| 14 % | Inversión pública por habitante (capítulo 6, media 2019/2024) | Ministerio de Hacienda (CONPREL) |
+| 13 % | Universidad: tamaño del campus | Wikidata y OpenStreetMap |
+| 8 % | Negocios nuevos: supermercados y gimnasios por habitante (nov-2020 frente a hoy) | OpenStreetMap |
+| 26 % | **Futuro**: vivienda prevista en el planeamiento (12), obra nueva (9), suelo para actividad económica (5) | SIU (Ministerio de Vivienda), Catastro |
+
+Se han descartado del índice, por poco informativos: suelo urbano y precio de la vivienda (reflejan precio, no crecimiento, y solo hay datos provinciales o
+de municipios grandes), proyección provincial de población (igual para todo el municipio de una provincia), solares (capacidad, no demanda) y la lista
+curada de proyectos (muestra incompleta; sigue visible en la ficha).
 
 La **calidad de la zona** (seguridad, renta, pobreza y okupación provincial) se muestra aparte y **no entra en el índice**. Solo se valora cuando hay
 seguridad municipal (Interior publica criminalidad solo para capitales y municipios de más de 20.000 habitantes); si no, aparece como "sin valorar".

@@ -250,11 +250,12 @@ import math
 # escala logarítmica por tamaño (0 = sin universidad; ≥40 = gran ciudad universitaria): una sede minúscula no puntúa como Salamanca
 r_uni = lambda s: min(100.0, 100 * math.log1p(s) / math.log1p(40))
 # Pesos nominales (suman 100 con todos los indicadores). Si falta alguno se reponderan los demás.
-# suelo y proy son datos provinciales (pesan poco); vt solo existe para >25.000 hab.; solar/viv no existen en País Vasco ni Navarra.
-# "proj" es un bonus: 100 si el municipio tiene algún proyecto de la lista curada; si no, no cuenta (no penaliza). La lista no es
-# exhaustiva, por eso pesa poco (3 %). Futuro (proy + solar + viv + pend + ae) = 32 %.
-W = {"g5": 0.14, "g1": 0.08, "abs": 0.10, "inv": 0.11, "neg": 0.07 if HIST else 0.035, "uni": 0.11,
-     "suelo": 0.02, "vt": 0.02, "proy": 0.06, "solar": 0.04, "viv": 0.08, "pend": 0.10, "ae": 0.04, "proj": 0.03}
+# Se descartaron del índice por poco informativos: suelo urbano y precio de vivienda (provincial / solo >25.000 hab.; reflejan precio,
+# no crecimiento), proyección provincial (idéntica para todo el municipio de una provincia), solares (capacidad, no demanda) y la
+# lista curada de proyectos (muestra incompleta; sigue visible en la ficha). viv/pend/ae no existen en País Vasco ni Navarra (viv) o sin SIU.
+# Futuro (viv + pend + ae) = 26 %.
+W = {"g5": 0.17, "g1": 0.10, "abs": 0.12, "inv": 0.14, "neg": 0.08 if HIST else 0.04, "uni": 0.13,
+     "viv": 0.09, "pend": 0.12, "ae": 0.05}
 for r in rows:
     if r["pop"] >= 1000:
         parts = {"g5": r_g5(r["g5"]), "g1": r_g1(r["g1"]), "abs": r_abs(r["abs"]), "uni": r_uni(r["uniSize"])}
@@ -262,40 +263,26 @@ for r in rows:
             parts["inv"] = r_inv(r["inv"])
         if r["negPc"] is not None:
             parts["neg"] = r_neg(r["negPc"])
-        if r["sueloG"] is not None:
-            parts["suelo"] = r_suelo(r["sueloG"])
-        if r["vtG"] is not None:
-            parts["vt"] = r_vt(r["vtG"])
-        if r["proy"] is not None:
-            parts["proy"] = r_proy(r["proy"])
-        if r["solarPc"] is not None:
-            parts["solar"] = r_solar(r["solarPc"])
         if r["vivPm"] is not None:
             parts["viv"] = r_viv(r["vivPm"])
         if r["pendK"] is not None:
             parts["pend"] = r_pend(r["pendK"])
         if r["aeP"] is not None:
             parts["ae"] = r_ae(r["aeP"])
-        if r["proj"]:
-            parts["proj"] = 100.0
         wsum = sum(W[k] for k in parts)  # si falta algún indicador se reponderan los demás
         r["score"] = round(sum(W[k] * v for k, v in parts.items()) / wsum, 1)
-        # Índice de futuro: solo proyección provincial, suelo disponible, obra nueva y proyectos (bonus si hay)
-        fp = {k: parts[k] for k in ("proy", "solar", "viv", "pend", "ae", "proj") if k in parts}
+        # Índice de futuro: obra nueva, vivienda y suelo de actividad previstos en el planeamiento
+        fp = {k: parts[k] for k in ("viv", "pend", "ae") if k in parts}
         r["fut"] = round(sum(W[k] * v for k, v in fp.items()) / sum(W[k] for k in fp), 1) if fp else None
         r["sInv"] = round(parts["inv"]) if "inv" in parts else None
         r["sNeg"] = round(parts["neg"]) if "neg" in parts else None
         r["sPop"] = round((W["g5"] * parts["g5"] + W["g1"] * parts["g1"] + W["abs"] * parts["abs"]) / (W["g5"] + W["g1"] + W["abs"]))
         r["sUni"] = round(parts["uni"])
-        r["sSuelo"] = round(parts["suelo"]) if "suelo" in parts else None
-        r["sVt"] = round(parts["vt"]) if "vt" in parts else None
-        r["sProy"] = round(parts["proy"]) if "proy" in parts else None
-        r["sSolar"] = round(parts["solar"]) if "solar" in parts else None
         r["sViv"] = round(parts["viv"]) if "viv" in parts else None
         r["sPend"] = round(parts["pend"]) if "pend" in parts else None
         r["sAe"] = round(parts["ae"]) if "ae" in parts else None
     else:
-        r["score"] = r["sInv"] = r["sNeg"] = r["sPop"] = r["sUni"] = r["sSuelo"] = r["sVt"] = r["sProy"] = r["sSolar"] = r["sViv"] = r["sPend"] = r["sAe"] = r["fut"] = None
+        r["score"] = r["sInv"] = r["sNeg"] = r["sPop"] = r["sUni"] = r["sViv"] = r["sPend"] = r["sAe"] = r["fut"] = None
     r["prov"] = PROV.get(r["p"], r["p"])
     del r["p"]
 
