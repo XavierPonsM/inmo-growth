@@ -114,7 +114,7 @@ const okDot = (v: number | null) => (v === null ? "var(--edge)" : v < 40 ? "var(
 // Veredicto orientativo para un inversor: cruza crecimiento, zona y riesgo de okupación. Reglas fijas, no asesoramiento.
 type Rec = { lvl: 0 | 1 | 2 | 3; label: string; color: string; good: string[]; warn: string[]; bad: string[] };
 const REC_LABEL = ["Descartar", "Con cautela", "A estudiar", "Buena candidata"] as const;
-const REC_COLOR = ["var(--brick)", "var(--gold)", "#5a9a72", "var(--forest)"] as const;
+const REC_COLOR = ["var(--brick)", "var(--gold)", "#3fae9a", "var(--forest)"] as const;
 function recommend(r: Row): Rec | null {
   if (r.score === null) return null;
   const good: string[] = [], warn: string[] = [], bad: string[] = [];
@@ -150,11 +150,11 @@ maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
 // Escala de color del índice (misma que el mapa y la leyenda): un solo tono, de arena a verde bosque (más calmada que mezclar varios)
 const STOPS: [number, [number, number, number], string][] = [
-  [0, [221, 229, 168], "#DDE5A8"],
-  [30, [183, 210, 122], "#B7D27A"],
-  [48, [120, 184, 90], "#78B85A"],
-  [62, [46, 154, 94], "#2E9A5E"],
-  [80, [11, 93, 69], "#0B5D45"], // las puntuaciones reales llegan hasta ~80: la escala satura ahí
+  [0, [221, 238, 233], "#DDEEE9"],
+  [30, [160, 217, 200], "#A0D9C8"],
+  [48, [72, 187, 160], "#48BBA0"],
+  [62, [18, 140, 126], "#128C7E"],
+  [80, [11, 67, 99], "#0B4363"], // las puntuaciones reales llegan hasta ~80: la escala satura ahí
 ];
 function scoreColor(v: number): string {
   for (let i = 1; i < STOPS.length; i++) {
@@ -167,7 +167,7 @@ function scoreColor(v: number): string {
   }
   return "rgb(47,70,56)";
 }
-const badgeText = (v: number) => (v >= 68 ? "#fff" : "#1c1a17"); // texto blanco solo sobre los verdes oscuros (mejor contraste)
+const badgeText = (v: number) => (v >= 60 ? "#fff" : "#0f172a"); // texto blanco solo sobre los verdes oscuros (mejor contraste)
 // Radio de la burbuja según la puntuación: 2 px (puntuación ~0) hasta 14 px (80 o más) a zoom 5; el doble a zoom 10 (k = 1 ó 2)
 const SIZE_AT = (k: number) =>
   ["*", k, ["+", 2, ["*", 12, ["^", ["/", ["min", ["get", "score"], 80], 80], 2]]]] as unknown as maplibregl.ExpressionSpecification;
@@ -374,7 +374,7 @@ function ZonePanel({ sel, zref }: { sel: Row; zref: ZRef | undefined }) {
   if (sel.sPob !== null && sel.sPob < 25) alerts.push("porcentaje de población con ingresos bajos entre los más altos");
   if (sel.sRenta !== null && sel.sRenta < 25) alerts.push("renta por persona entre las más bajas");
   return (
-    <section className="rounded-lg border border-line bg-white p-3">
+    <section className="rounded-xl border border-line bg-white shadow-sm p-3">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-base font-semibold leading-snug">
           <span className="mr-2 inline-block h-3 w-3 rounded-full align-baseline" style={{ background: zoneDot(sel.zona) }} />
@@ -435,7 +435,7 @@ function ZonePanel({ sel, zref }: { sel: Row; zref: ZRef | undefined }) {
 
 function Fact({ label, value, dot }: { label: string; value: string; dot?: string }) {
   return (
-    <div className="rounded-lg border border-line bg-white px-3 py-2">
+    <div className="rounded-xl border border-line bg-white shadow-sm px-3 py-2">
       <div className="text-xs text-muted">{label}</div>
       <div className="mt-0.5 flex items-center gap-1.5 text-sm font-semibold text-ink">
         {dot && <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: dot }} />}
@@ -506,7 +506,7 @@ function InformePanel({ id, name }: { id: string; name: string }) {
 
 function ScoreCard({ title, v, rank, total }: { title: string; v: number | null; rank?: number; total: number }) {
   return (
-    <div className="rounded-lg border border-line bg-white p-3">
+    <div className="rounded-xl border border-line bg-white shadow-sm p-3">
       <div className="text-xs font-medium text-muted">{title}</div>
       <div className="mt-1.5 flex items-center gap-3">
         {v === null ? <span className="text-muted">sin datos</span> : <Badge v={v} big />}
@@ -811,9 +811,9 @@ function Chip({ label, count, open, onClick }: { label: string; count: number; o
       aria-expanded={open}
       className={`flex shrink-0 items-center gap-1 rounded-full border px-3 py-1 text-[13px] font-medium transition ${
         count > 0
-          ? "border-gold bg-gold text-ink"
+          ? "border-accent bg-accent text-ink"
           : open
-            ? "border-gold bg-white/10 text-white"
+            ? "border-accent bg-white/10 text-white"
             : "border-white/25 bg-transparent text-paper/80 hover:border-white/50 hover:text-white"
       }`}
     >
@@ -966,7 +966,7 @@ export default function Explorer() {
           "circle-color": MAP_COLOR as maplibregl.ExpressionSpecification,
           "circle-opacity": 0.92,
           "circle-stroke-width": 1,
-          "circle-stroke-color": "#1f4d36",
+          "circle-stroke-color": "#0b3b4f",
           "circle-stroke-opacity": 0.55,
         },
       });
@@ -1238,7 +1238,7 @@ export default function Explorer() {
               <b className="font-semibold text-white">{fmt.format(filtered.length)}</b> municipios
             </span>
             {activeCount > 0 && (
-              <button className="font-semibold text-gold underline" onClick={() => setF({ ...DEFAULTS, q: f.q })}>
+              <button className="font-semibold text-accent underline" onClick={() => setF({ ...DEFAULTS, q: f.q })}>
                 Limpiar filtros ({activeCount})
               </button>
             )}
@@ -1257,14 +1257,14 @@ export default function Explorer() {
                 setOpen(null);
                 map.current?.flyTo({ center: [-3.7, 40.2], zoom: 5.2, essential: true });
               }}
-              className="rounded text-gold hover:text-white"
+              className="rounded text-accent hover:text-white"
               title="Volver al inicio"
             >
               Inmo Growth
             </button>
           </h1>
           <input
-            className="order-3 h-9 w-full rounded-md border border-transparent bg-white px-3 text-sm text-ink placeholder:text-muted focus:border-gold focus:outline-none md:order-2 md:w-auto md:max-w-sm md:flex-1 lg:w-56 lg:flex-none"
+            className="order-3 h-9 w-full rounded-md border border-transparent bg-white px-3 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none md:order-2 md:w-auto md:max-w-sm md:flex-1 lg:w-56 lg:flex-none"
             placeholder="Buscar municipio…"
             value={f.q}
             onChange={(e) => set({ q: e.target.value })}

@@ -9,9 +9,10 @@ export const maxDuration = 300;
 
 type Muni = {
   id: string; n: string; prov: string; pop: number; score: number | null; zona: number | null; okR: number | null;
-  vac: number | null; ocup: number | null; crim: number | null; g5: number; pendK: number | null; paro: number | null;
+  vt: number | null; renta: number | null; uniNear: string | null; uniKm: number | null; dc: number; cn: string; vac: number | null; ocup: number | null; crim: number | null; g5: number; pendK: number | null; paro: number | null;
 };
-type Informe = { id: string; fecha: string; texto: string; fuentes: { url: string; titulo: string }[]; modelo: string; uso?: { entrada: number; salida: number; busquedas: number } };
+const VERSION = 2; // cambia al cambiar el formato del informe: invalida la caché anterior
+type Informe = { v?: number; id: string; fecha: string; texto: string; fuentes: { url: string; titulo: string }[]; modelo: string; uso?: { entrada: number; salida: number; busquedas: number } };
 
 const MODEL = process.env.INFORME_MODEL ?? "claude-haiku-5-5";
 const CACHE_DIR = path.join(process.cwd(), ".cache", "informes");
@@ -26,26 +27,34 @@ async function loadMunis() {
   return munis;
 }
 
-const SYSTEM = `Ayudas a un inversor inmobiliario particular a valorar un municipio de España antes de comprar una vivienda para alquilar.
-La aplicación ya le muestra estadísticas oficiales (padrón, Catastro, SEPE, Interior). Lo que le falta, y lo que tú aportas, es lo que solo
-aparece en la prensa local y en fuentes municipales: si hay problemas de okupación o de seguridad en barrios o urbanizaciones concretas,
-qué proyectos reales están en marcha (empresas, infraestructuras, vivienda nueva) y cualquier otra noticia reciente que cambie la decisión.
+const SYSTEM = `Ayudas a un inversor inmobiliario particular a valorar un municipio de España para comprar una vivienda y alquilarla.
+No vive allí y quiere poder decidir sin desplazarse, así que este informe sustituye a la visita: debe salir de él sabiendo cuánto cuesta
+comprar, por cuánto se alquila, quién alquila, qué zonas del municipio conviene buscar o evitar y qué está cambiando.
 
-Busca en la web información de los últimos dos años sobre el municipio y resume solo lo que encuentres en fuentes concretas. El inversor
-va a tomar decisiones con esto, así que es mejor decir "no he encontrado noticias sobre esto" que rellenar con generalidades; no deduzcas
-problemas ni ventajas a partir de las estadísticas que se te dan, que él ya las ve. Si una noticia se refiere a un barrio o urbanización,
-nómbralo. Indica el año de cada dato.
+La aplicación ya le muestra estadísticas oficiales (padrón, Catastro, SEPE, Interior), y se te pasan las principales. Tú aportas lo que
+no está ahí: precios actuales de venta y de alquiler según los portales e informes inmobiliarios, y lo que cuenta la prensa local y el
+ayuntamiento sobre barrios y urbanizaciones concretos, okupación, seguridad, proyectos, transporte y servicios.
 
-Formato: texto plano en español, sin tablas ni negritas, unas 180 palabras como máximo. Usa exactamente estos cuatro encabezados, cada uno
-en su línea y precedido de "## ", con una a tres líneas debajo que empiecen por "- ":
+Busca en la web y resume solo lo que encuentres en fuentes concretas, de los dos últimos años salvo que no haya nada más reciente.
+El inversor va a mover dinero con esto: da cifras con su fuente y su fecha, nombra barrios y urbanizaciones cuando la fuente lo haga, y
+cuando no encuentres algo dilo en una línea ("no he encontrado datos de alquiler de este municipio") en lugar de rellenar con
+generalidades o con cifras de la provincia sin avisar. Redacta cada dato una sola vez y con tus palabras, en español: no pegues detrás la frase literal de la fuente. Si das la rentabilidad bruta, calcúlala tú con el alquiler y el precio que hayas
+encontrado (alquiler anual entre precio de compra) y di que es una estimación. Tienes un número limitado de búsquedas: empieza por los
+precios de venta y alquiler y reparte el resto entre los demás temas.
+
+Formato: texto plano en español, sin tablas ni negritas, unas 350 palabras como máximo. Usa exactamente estos encabezados, cada uno en
+su línea y precedido de "## ", con una a cuatro líneas debajo que empiecen por "- ":
+## Precios de compra
+## Alquiler y rentabilidad
+## Quién alquila y qué se busca
+## Zonas: dónde sí y dónde no
 ## Okupación y seguridad
-## Proyectos y empleo
-## Vivienda y mercado
+## Proyectos, empleo y transporte
 ## En resumen
 ## Fuentes
-"En resumen" es una sola línea que diga qué pesa más de lo encontrado y qué convendría comprobar en persona. No des una recomendación de compra.
-Bajo "Fuentes", una línea por cada página de la que hayas sacado algo, con la forma "- título | URL", copiando la URL tal cual apareció en los
-resultados de búsqueda. Tienes un número limitado de búsquedas: repártelas entre los tres temas en lugar de agotarlas en el primero.`;
+"En resumen" son dos líneas: qué pesa más a favor y en contra, y qué le quedaría por comprobar a distancia (y cómo: a quién llamar o
+qué pedir). No des una recomendación de compra. Bajo "Fuentes", una línea por cada página de la que hayas sacado algo, con la forma
+"- título | URL", copiando la URL tal cual apareció en los resultados de búsqueda.`;
 
 export async function POST(req: Request) {
   const { id } = (await req.json().catch(() => ({}))) as { id?: string };
@@ -58,7 +67,7 @@ export async function POST(req: Request) {
   const file = path.join(CACHE_DIR, `${m.id}.json`);
   try {
     const cached = JSON.parse(await fs.readFile(file, "utf-8")) as Informe;
-    if (Date.now() - new Date(cached.fecha).getTime() < TTL_MS) return Response.json({ ...cached, cache: true });
+    if (cached.v === VERSION && Date.now() - new Date(cached.fecha).getTime() < TTL_MS) return Response.json({ ...cached, cache: true });
   } catch {
     // sin caché: se genera
   }
@@ -71,6 +80,10 @@ export async function POST(req: Request) {
     m.ocup !== null ? `${m.ocup} denuncias de allanamiento/usurpación por 10.000 hab. en su provincia` : null,
     m.crim !== null ? `${m.crim} hechos delictivos por 1.000 hab.` : "sin dato municipal de criminalidad",
     m.pendK !== null ? `${m.pendK} viviendas previstas en el planeamiento por 1.000 hab.` : null,
+    m.vt !== null ? `valor tasado medio ${m.vt} €/m² (Ministerio)` : null,
+    m.renta !== null ? `renta neta ${m.renta} € por persona` : null,
+    m.uniNear ? `universidad más cercana: ${m.uniNear} a ${m.uniKm} km` : null,
+    m.dc > 0 ? `a ${m.dc} km de ${m.cn}` : null,
   ]
     .filter(Boolean)
     .join("; ");
@@ -85,10 +98,10 @@ export async function POST(req: Request) {
       msg = await client.messages
         .stream({
           model: MODEL,
-          max_tokens: 8000,
+          max_tokens: 20000,
           output_config: { effort: "medium" },
           system: SYSTEM,
-          tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 8, user_location: { type: "approximate", country: "ES" } }],
+          tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 10, user_location: { type: "approximate", country: "ES" } }],
           messages,
         })
         .finalMessage();
@@ -125,10 +138,11 @@ export async function POST(req: Request) {
     if (!texto) return Response.json({ error: "El informe ha llegado vacío; inténtalo de nuevo." }, { status: 502 });
 
     const informe: Informe = {
+      v: VERSION,
       id: m.id,
       fecha: new Date().toISOString(),
       texto,
-      fuentes: [...fuentes].slice(0, 10).map(([url, titulo]) => ({ url, titulo })),
+      fuentes: [...fuentes].slice(0, 14).map(([url, titulo]) => ({ url, titulo })),
       modelo: msg.model,
       uso: { entrada: msg.usage.input_tokens, salida: msg.usage.output_tokens, busquedas: msg.usage.server_tool_use?.web_search_requests ?? 0 },
     };
