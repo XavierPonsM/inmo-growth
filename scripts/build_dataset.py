@@ -153,11 +153,57 @@ def _km(a, b):
     return 2 * 6371 * math.asin(math.sqrt(h))
 
 
-_cities = [r for r in rows if r["pop"] >= 100000]
-for r in rows:
-    best = min(_cities, key=lambda c: _km(r, c))
-    r["dc"] = round(_km(r, best))                                   # km hasta la ciudad grande más cercana (0 si lo es)
-    r["cn"] = best["n"].split("/")[-1] if "/" in best["n"] else best["n"]  # nombre corto de esa ciudad
+# Red de municipios: cada municipio es un nodo unido a sus vecinos más cercanos (hasta 45 km); el coste de cada arista es la distancia en línea
+# recta x 1,3 (circuito medio de carretera). Dijkstra desde las universidades y desde las ciudades grandes da la distancia "por carretera" estimada.
+import numpy as np
+from scipy.spatial import cKDTree
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import dijkstra
+
+_la = np.radians([r["lat"] for r in rows]); _lo = np.radians([r["lon"] for r in rows])
+_xyz = 6371 * np.c_[np.cos(_la) * np.cos(_lo), np.cos(_la) * np.sin(_lo), np.sin(_la)]
+_dd, _ii = cKDTree(_xyz).query(_xyz, k=9)
+_ei, _ej, _ew = [], [], []
+for i in range(len(rows)):
+    for d, j in zip(_dd[i][1:], _ii[i][1:]):
+        if d <= 45:
+            _ei.append(i); _ej.append(int(j)); _ew.append(d * 1.3)
+GRAPH = coo_matrix((_ew, (_ei, _ej)), shape=(len(rows),) * 2).tocsr()
+CIRCUITO_MAX = 45  # km: más allá no se considera accesible a diario
+
+# Ciudades grandes (más de 100.000 hab.): distancia y nombre de la más cercana por la red
+_src = [i for i, r in enumerate(rows) if r["pop"] >= 100000]
+_D = dijkstra(GRAPH, directed=False, indices=_src, limit=CIRCUITO_MAX * 3)
+_best = _D.argmin(axis=0)
+for i, r in enumerate(rows):
+    d = float(_D[_best[i], i])
+    if math.isinf(d):  # isla o zona aislada: línea recta
+        j = min(_src, key=lambda k: _km(r, rows[k])); d = _km(r, rows[j]) * 1.3; _best[i] = _src.index(j)
+    c = rows[_src[_best[i]]]
+    r["dc"] = round(d)                                                    # km por carretera (estimados) hasta la ciudad grande más cercana (0 si lo es)
+    r["cn"] = c["n"].split("/")[-1] if "/" in c["n"] else c["n"]          # nombre corto de esa ciudad
+
+# Universidades: para cada municipio, la mejor universidad accesible = tamaño del campus x factor de cercanía exp(-km/12)
+# (km = ruta estimada centro a centro + distancia del campus al centro de su municipio). Con campus propio, solo cuenta el campus al centro.
+_usrc = [i for i, r in enumerate(rows) if r["uniSize"] > 0 and (r["uni"] > 0 or r["uniOsm"] >= 2)]
+_DU = dijkstra(GRAPH, directed=False, indices=_usrc, limit=CIRCUITO_MAX)
+_us0 = np.array([min(100.0, 100 * math.log1p(rows[i]["uniSize"]) / math.log1p(40)) for i in _usrc])
+_off = np.array([rows[i]["uniD"] or 0.0 for i in _usrc])
+_km_u = _DU + _off[:, None]
+_val = np.where(np.isfinite(_DU), _us0[:, None] * np.exp(-_km_u / 12), 0.0)
+_bu = _val.argmax(axis=0)
+for i, r in enumerate(rows):
+    k = int(_bu[i])
+    r["uniS"] = float(_val[k, i])                                         # puntuación 0-100 de acceso universitario
+    if _val[k, i] > 0.5:
+        u = rows[_usrc[k]]
+        _nm = (u["uniN"] or "Campus").split("; ")
+        _short = u["n"].split("/")[-1]
+        r["uniNear"] = next((x for x in _nm if _short in x), _nm[0])      # universidad (o campus) que más aporta
+        r["uniKm"] = round(float(_km_u[k, i]), 1)
+        r["uniAt"] = u["n"].split("/")[-1] if _usrc[k] != i else None   # municipio donde está, si no es el propio
+    else:
+        r["uniNear"] = r["uniKm"] = r["uniAt"] = None
 
 # ---- Edad, paro y costa (INE Atlas de renta, SEPE, Natural Earth) ----
 _edad = {r["ine"]: r for r in csv.DictReader(open(ROOT / "data/raw/edad_mun.csv"))}
@@ -186,6 +232,7 @@ for r in rows:
 crim = {r["ine"]: r for r in csv.DictReader(open(ROOT / "data/raw/crimen_mun.csv", encoding="utf-8"))}
 usu = {r["prov"]: r for r in csv.DictReader(open(ROOT / "data/raw/usurpacion_prov.csv", encoding="utf-8"))}
 renta = {r["ine"]: r for r in csv.DictReader(open(ROOT / "data/raw/renta_mun.csv", encoding="utf-8"))}
+vac = {r["ine"]: r for r in csv.DictReader(open(ROOT / "data/raw/vacias_mun.csv"))}
 _pp = {}
 for r in rows:
     _pp[r["p"]] = _pp.get(r["p"], 0) + r["pop"]
@@ -209,8 +256,12 @@ for r in rows:
     if u and _f(u["y2025"]) is not None and _pp.get(r["p"]):
         r["ocup"] = round(_f(u["y2025"]) / _pp[r["p"]] * 10000, 1)                    # por 10.000 hab. de la provincia
         r["ocupT"] = round((_f(u["y2025"]) / _f(u["y2021"]) - 1) * 100) if _f(u["y2021"]) else None  # variación 2021-2025
+        r["ocupS"] = [int(_f(u[k]) or 0) for k in ("y2021", "y2022", "y2023", "y2024", "y2025")]  # denuncias en la provincia, 2021-2025
     else:
-        r["ocup"] = r["ocupT"] = None
+        r["ocup"] = r["ocupT"] = r["ocupS"] = None
+    vc = vac.get(r["id"])
+    r["vac"] = round(int(vc["vacias"]) / int(vc["viviendas"]) * 100, 1) if vc and int(vc["viviendas"]) > 0 else None  # % de viviendas vacías (Censo 2021)
+    r["vacN"] = int(vc["vacias"]) if vc else None
     rt = renta.get(r["id"])
     r["renta"] = int(_f(rt["renta_persona"])) if rt and _f(rt["renta_persona"]) else None  # € netos por persona
     r["rentaH"] = int(_f(rt["renta_hogar"])) if rt and _f(rt["renta_hogar"]) else None    # € netos por hogar
@@ -223,22 +274,39 @@ _rn = sorted(r["renta"] for r in _big if r["renta"] is not None)
 _pb = sorted(r["pob"] for r in _big if r["pob"] is not None)
 _med = lambda v: v[len(v) // 2] if v else None
 q_crim, q_ocup, q_renta, q_pob = pct_rank(_sc), pct_rank(_pr), pct_rank(_rn), pct_rank(_pb)
-ZW = {"seg": 0.30, "ocup": 0.10, "renta": 0.30, "pob": 0.30}
+_vc = sorted(r["vac"] for r in _big if r["vac"] is not None)
+_cd = sorted(r["crimD"] for r in rows if r["crimD"] is not None)
+q_vac, q_crimD = pct_rank(_vc), pct_rank(_cd)
+# Riesgo de okupación ESTIMADO por municipio (0 = bajo, 100 = alto). Interior solo publica las denuncias por provincia, así que se combina
+# ese dato con factores municipales que la favorecen: vivienda vacía (Censo 2021), pobreza y, donde existe, robos en domicilios.
+OW = {"prov": 0.45, "vac": 0.30, "pob": 0.15, "dom": 0.10}
+ZW = {"seg": 0.35, "okr": 0.30, "renta": 0.20, "pob": 0.15}
 for r in rows:
+    op = {}
+    if r["ocup"] is not None:
+        op["prov"] = q_ocup(r["ocup"])
+    if r["vac"] is not None:
+        op["vac"] = q_vac(r["vac"])
+    if r["pob"] is not None:
+        op["pob"] = q_pob(r["pob"])
+    if r["crimD"] is not None:
+        op["dom"] = q_crimD(r["crimD"])
+    # hace falta el dato provincial y al menos uno municipal; si no, no se estima
+    r["okR"] = round(sum(OW[k] * v for k, v in op.items()) / sum(OW[k] for k in op)) if ("prov" in op and len(op) >= 2) else None
     zp = {}
     if r["crim"] is not None:
         zp["seg"] = 100 - q_crim(r["crim"])        # más seguro = más puntos
-    if r["ocup"] is not None:
-        zp["ocup"] = 100 - q_ocup(r["ocup"])       # menos okupación provincial = más puntos
+    if r["okR"] is not None:
+        zp["okr"] = 100 - r["okR"]                 # menos riesgo de okupación = más puntos
     if r["renta"] is not None:
         zp["renta"] = q_renta(r["renta"])
     if r["pob"] is not None:
         zp["pob"] = 100 - q_pob(r["pob"])
-    r["sSeg"], r["sOcup"], r["sRenta"], r["sPob"] = (round(zp[k]) if k in zp else None for k in ("seg", "ocup", "renta", "pob"))
+    r["sSeg"], r["sOcup"], r["sRenta"], r["sPob"] = (round(zp[k]) if k in zp else None for k in ("seg", "okr", "renta", "pob"))
     # Solo se valora la zona si hay SEGURIDAD MUNICIPAL (Interior: capitales y municipios >20.000 hab.) además de renta o pobreza.
     # Sin ese dato prefiero no dar veredicto antes que dar un falso positivo ("buena zona") sin evidencia suficiente.
     r["zona"] = round(sum(ZW[k] * v for k, v in zp.items()) / sum(ZW[k] for k in zp), 1) if ("seg" in zp and ("renta" in zp or "pob" in zp)) else None
-ZREF = {"crim": _med(_sc), "ocup": round(sum(_f(u["y2025"]) or 0 for u in usu.values()) / sum(_pp.values()) * 10000, 1), "renta": _med(_rn), "pob": _med(_pb)}
+ZREF = {"vac": _med(_vc), "crim": _med(_sc), "ocup": round(sum(_f(u["y2025"]) or 0 for u in usu.values()) / sum(_pp.values()) * 10000, 1), "renta": _med(_rn), "pob": _med(_pb)}
 
 # Planeamiento (SIU, Ministerio de Vivienda): viviendas y suelo de actividad económica previstos y pendientes en áreas de desarrollo.
 # OJO: son planes sobre el papel (muchos antiguos, del boom), no obra garantizada. Cobertura: 5.898 municipios (CCAA aportan los datos).
@@ -269,25 +337,29 @@ r_edM = pct_rank([-r["edM"] for r in elig if r["edM"] is not None])
 r_paro = pct_rank([-r["paro"] for r in elig if r["paro"] is not None])
 r_paroT = pct_rank([-r["paroT"] for r in elig if r["paroT"] is not None])
 r_costa = lambda km: 100 * math.exp(-km / 30)   # 0 km = 100; 30 km = 37; 100 km = 4
-r_ciu = lambda km: 100 * math.exp(-km / 35)     # distancia a una ciudad de más de 100.000 hab.
+r_ciu = lambda km: 100 * math.exp(-km / 45)     # distancia a una ciudad de más de 100.000 hab.
 r_g5, r_g1, r_abs = pct_rank([r["g5"] for r in elig]), pct_rank([r["g1"] for r in elig]), pct_rank([r["abs"] for r in elig])
 r_inv = pct_rank([r["inv"] for r in elig if r["inv"] is not None])
 r_neg = pct_rank([r["negPc"] for r in elig if r["negPc"] is not None])
 import math
 # escala logarítmica por tamaño (0 = sin universidad; ≥40 = gran ciudad universitaria): una sede minúscula no puntúa como Salamanca
-r_uni0 = lambda s: min(100.0, 100 * math.log1p(s) / math.log1p(40))
-# alquiler a estudiantes: pesa que el campus esté cerca del centro (a pie o en bus corto). 0,3 km -> x0,96; 5 km -> x0,62; 15 km -> x0,43
-r_uni = lambda s, d: r_uni0(s) * (1.0 if d is None or s == 0 else 0.4 + 0.6 * math.exp(-d / 5))
 # Pesos nominales (suman 100 con todos los indicadores). Si falta alguno se reponderan los demás.
 # Se descartaron del índice por poco informativos: suelo urbano y precio de la vivienda (reflejan precio, no crecimiento), proyección
 # provincial (igual para todo el municipio de una provincia), solares (capacidad, no demanda) y la lista curada de proyectos (muestra incompleta).
-# Población 23 + inversión 8 + universidad 9 + negocios 5 + futuro 20 (viv 7, pend 9, ae 4) + juventud 8 + paro 11 + mar 6 + ciudad 10.
-W = {"g5": 0.10, "g1": 0.06, "abs": 0.07, "inv": 0.08, "neg": 0.05 if HIST else 0.025, "uni": 0.09,
-     "viv": 0.07, "pend": 0.09, "ae": 0.04,
-     "juv": 0.08, "paro": 0.07, "paroT": 0.04, "cos": 0.06, "ciu": 0.10}
+# Población 25 + futuro 22 (obra nueva 9, planeamiento 9, actividad 4) + ciudad 10 + universidad 8 + juventud 8 + paro 8 (+2 evolución)
+# + inversión 5 + mar 5 + mercado tensionado (poca vivienda vacía) 4 + negocios 3.
+# Criterio: pesa más lo fiable y municipal (padrón, catastro, SEPE) y menos lo ruidoso (variación anual del paro, OSM, inversión puntual).
+W = {"g5": 0.11, "g1": 0.06, "abs": 0.08, "inv": 0.05, "neg": 0.03 if HIST else 0.015, "uni": 0.08,
+     "viv": 0.09, "pend": 0.09, "ae": 0.04,
+     "juv": 0.08, "paro": 0.08, "paroT": 0.02, "cos": 0.05, "ciu": 0.10, "vac": 0.04}
 for r in rows:
     if r["pop"] >= 1000:
-        parts = {"g5": r_g5(r["g5"]), "g1": r_g1(r["g1"]), "abs": r_abs(r["abs"]), "uni": r_uni(r["uniSize"], r["uniD"]), "ciu": r_ciu(r["dc"])}
+        parts = {"g5": r_g5(r["g5"]), "g1": r_g1(r["g1"]), "abs": r_abs(r["abs"]), }
+        # Más allá de 45 km por carretera no se considera accesible: el indicador no puntúa ni penaliza (se reponderan los demás)
+        if r["uniNear"] is not None:
+            parts["uni"] = r["uniS"]
+        if r["dc"] <= CIRCUITO_MAX:
+            parts["ciu"] = r_ciu(r["dc"])
         if r["inv"] is not None:
             parts["inv"] = r_inv(r["inv"])
         if r["negPc"] is not None:
@@ -296,6 +368,8 @@ for r in rows:
             parts["juv"] = (r_m18(r["m18"]) + r_edM(-r["edM"])) / 2
         if r["costa"] is not None and r["costa"] <= 60:  # el mar es un bonus: el interior no se penaliza (se reponderan los demás)
             parts["cos"] = r_costa(r["costa"])
+        if r["vac"] is not None:
+            parts["vac"] = 100 - q_vac(r["vac"])  # poca vivienda vacía = mercado tensionado
         if r["paro"] is not None:
             parts["paro"] = r_paro(-r["paro"])
         if r["paroT"] is not None:
@@ -314,16 +388,16 @@ for r in rows:
         r["sInv"] = round(parts["inv"]) if "inv" in parts else None
         r["sNeg"] = round(parts["neg"]) if "neg" in parts else None
         r["sPop"] = round((W["g5"] * parts["g5"] + W["g1"] * parts["g1"] + W["abs"] * parts["abs"]) / (W["g5"] + W["g1"] + W["abs"]))
-        r["sUni"] = round(parts["uni"])
-        for _k, _f in (("juv", "sJuv"), ("paro", "sParo"), ("paroT", "sParoT")):
+        r["sUni"] = round(parts["uni"]) if "uni" in parts else None
+        for _k, _f in (("juv", "sJuv"), ("paro", "sParo"), ("paroT", "sParoT"), ("vac", "sVac")):
             r[_f] = round(parts[_k]) if _k in parts else None
         r["sCos"] = round(parts["cos"]) if "cos" in parts else None
-        r["sCiu"] = round(parts["ciu"])
+        r["sCiu"] = round(parts["ciu"]) if "ciu" in parts else None
         r["sViv"] = round(parts["viv"]) if "viv" in parts else None
         r["sPend"] = round(parts["pend"]) if "pend" in parts else None
         r["sAe"] = round(parts["ae"]) if "ae" in parts else None
     else:
-        r["score"] = r["sJuv"] = r["sParo"] = r["sParoT"] = r["sCos"] = r["sCiu"] = r["sInv"] = r["sNeg"] = r["sPop"] = r["sUni"] = r["sViv"] = r["sPend"] = r["sAe"] = r["fut"] = None
+        r["score"] = r["sVac"] = r["sJuv"] = r["sParo"] = r["sParoT"] = r["sCos"] = r["sCiu"] = r["sInv"] = r["sNeg"] = r["sPop"] = r["sUni"] = r["sViv"] = r["sPend"] = r["sAe"] = r["fut"] = None
     r["prov"] = PROV.get(r["p"], r["p"])
     del r["p"]
 

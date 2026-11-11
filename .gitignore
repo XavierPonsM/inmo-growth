@@ -49,3 +49,6 @@ next-env.d.ts
 # trozos descargados de Overpass (se regeneran con scripts/fetch_osm_hist.py)
 /data/raw/osm_hist_tiles/
 /data/raw/osm_now_tiles/
+
+# informes de IA guardados en local
+.cache

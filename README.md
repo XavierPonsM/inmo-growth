@@ -17,22 +17,29 @@ Media ponderada de percentiles entre los municipios de 1.000 habitantes o más. 
 
 | Peso | Indicador | Fuente |
 |---|---|---|
-| 23 % | Población: crecimiento total, último año y personas ganadas | INE (padrón) |
-| 8 % | Inversión pública por habitante (capítulo 6, media 2019/2024) | Ministerio de Hacienda (CONPREL) |
-| 9 % | Universidad: tamaño del campus, rebajado si está lejos del centro | Wikidata y OpenStreetMap |
-| 5 % | Negocios nuevos: supermercados y gimnasios por habitante (nov-2020 frente a hoy) | OpenStreetMap |
-| 20 % | **Futuro**: vivienda prevista en el planeamiento (9), obra nueva (7), suelo para actividad económica (4) | SIU (Ministerio de Vivienda), Catastro |
+| 25 % | Población: crecimiento total, último año y personas ganadas | INE (padrón) |
+| 22 % | **Futuro**: obra nueva (9), vivienda prevista en el planeamiento (9), suelo para actividad económica (4) | Catastro, SIU (Ministerio de Vivienda) |
+| 10 % | Cercanía a una ciudad de más de 100.000 habitantes (Dijkstra sobre la red de municipios) | Cálculo propio con INE |
+| 10 % | Empleo: paro registrado sobre población de 18-64 (8) y su variación interanual (2) | SEPE |
+| 8 % | Universidad: mejor campus accesible (tamaño x cercanía por red de municipios y Dijkstra, hasta 45 km) | Wikidata y OpenStreetMap |
 | 8 % | Población joven: edad media y % de menores de 18 años | INE (Atlas de renta) |
-| 11 % | Empleo: paro registrado sobre población de 18-64 (7) y su variación interanual (4) | SEPE |
-| 10 % | Cercanía a una ciudad de más de 100.000 habitantes (línea recta) | Cálculo propio con INE |
-| 6 % | Cercanía al mar (solo cuenta si está a menos de 60 km; el interior no se penaliza) | Natural Earth |
+| 5 % | Inversión pública por habitante (capítulo 6, media 2019/2024) | Ministerio de Hacienda (CONPREL) |
+| 5 % | Cercanía al mar (solo cuenta si está a menos de 60 km; el interior no se penaliza) | Natural Earth |
+| 4 % | Mercado tensionado: poca vivienda vacía | INE (Censo 2021) |
+| 3 % | Negocios nuevos: supermercados y gimnasios por habitante (nov-2020 frente a hoy) | OpenStreetMap |
 
 Se han descartado del índice, por poco informativos: suelo urbano y precio de la vivienda (reflejan precio, no crecimiento, y solo hay datos provinciales o
 de municipios grandes), proyección provincial de población (igual para todo el municipio de una provincia), solares (capacidad, no demanda) y la lista
 curada de proyectos (muestra incompleta; sigue visible en la ficha).
 
-La **calidad de la zona** (seguridad, renta, pobreza y okupación provincial) se muestra aparte y **no entra en el índice**. Solo se valora cuando hay
+La **zona** se valora aparte (no entra en el índice): seguridad 35 %, riesgo de okupación 30 %, renta 20 % y pobreza 15 %. Solo se valora cuando hay
 seguridad municipal (Interior publica criminalidad solo para capitales y municipios de más de 20.000 habitantes); si no, aparece como "sin valorar".
+
+El **riesgo de okupación** es una estimación por municipio: denuncias de allanamiento/usurpación de la provincia (45 %; Interior no las publica por
+municipio), vivienda vacía del municipio (30 %, Censo 2021), pobreza (15 %) y robos con fuerza en domicilios (10 %, donde existe).
+
+El **veredicto orientativo** (descartar / con cautela / a estudiar / buena candidata) cruza crecimiento, zona y riesgo de okupación con reglas fijas.
+Es un filtro estadístico, no una recomendación personalizada de inversión.
 
 ## Ejecutar la web
 
@@ -48,12 +55,12 @@ La web lee `public/municipios.json` y `public/sectores.json`, que ya van en el r
 Los datos intermedios (`data/raw/*.csv`) también están versionados, así que basta con:
 
 ```bash
-pip install numpy pandas openpyxl xlrd
+pip install numpy scipy pandas openpyxl xlrd
 python3 scripts/build_dataset.py        # genera public/municipios.json
 ```
 
 Cada fuente tiene su script en `scripts/` (descarga y procesado): `fetch_osm.py`, `fetch_osm_hist.py`, `process_osm.py`, `process_gasto.py`,
-`process_uni.py`, `process_suelo.py`, `process_tasado.py`, `process_futuro.py`, `process_siu.py`, `process_sectores.py`, `fetch_edad.py`, `process_paro.py`, `process_costa.py`, `fetch_renta.py` y
+`process_uni.py`, `process_suelo.py`, `process_tasado.py`, `process_futuro.py`, `process_siu.py`, `process_sectores.py`, `fetch_edad.py`, `process_vacias.py`, `process_paro.py`, `process_costa.py`, `fetch_renta.py` y
 `process_seguridad.py`. La cabecera de cada uno explica de dónde descarga y qué genera. Los proyectos concretos están en
 `data/curated/proyectos.json` (cada entrada necesita código INE, nombre, tipo, estado y una URL).
 

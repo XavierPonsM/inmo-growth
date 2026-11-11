@@ -32,7 +32,10 @@ type Row = {
   uni: number; // nº de universidades (Wikidata)
   uniOsm: number; // elementos de campus en OSM (proxy de tamaño)
   uniN: string | null; // nombres (hasta 3)
-  uniD: number | null; // km del centro del municipio al campus más cercano
+  uniD: number | null; // km del centro del municipio a su propio campus
+  uniNear: string | null; // universidad que más aporta (puede estar en otro municipio)
+  uniKm: number | null; // km estimados por carretera hasta ella
+  uniAt: string | null; // municipio donde está, si no es el propio
   m18: number | null; // % menores de 18 años
   m65: number | null; // % de 65 y más
   edM: number | null; // edad media
@@ -85,11 +88,16 @@ type Row = {
   sRenta: number | null;
   sPob: number | null; // 0-100, más alto = menos pobreza
   zona: number | null; // 0-100: calidad de la zona
+  okR: number | null; // riesgo de okupación estimado (0 bajo - 100 alto)
+  ocupS: number[] | null; // denuncias de allanamiento/usurpación en la provincia, 2021-2025
+  vac: number | null; // % de viviendas vacías (Censo 2021)
+  vacN: number | null;
+  sVac: number | null;
   dc: number; // km hasta la ciudad grande (más de 100.000 hab.) más cercana
   cn: string; // nombre de esa ciudad
 };
 
-type ZRef = { crim: number | null; ocup: number | null; renta: number | null; pob: number | null };
+type ZRef = { vac: number | null; crim: number | null; ocup: number | null; renta: number | null; pob: number | null };
 
 // Veredicto de zona (criterio orientativo)
 function zoneVerdict(z: number | null): { label: string; emoji: string; cls: string } {
@@ -97,6 +105,36 @@ function zoneVerdict(z: number | null): { label: string; emoji: string; cls: str
   if (z >= 60) return { label: "Zona buena", emoji: "🟢", cls: "bg-tint text-forest border-forest/40" };
   if (z >= 40) return { label: "Zona media", emoji: "🟡", cls: "bg-gold-soft text-ink border-gold/60" };
   return { label: "Zona por debajo de la media", emoji: "🔴", cls: "bg-brick-soft text-brick border-brick/40" };
+}
+
+// Riesgo de okupación estimado: niveles
+const okLevel = (v: number) => (v < 40 ? "Bajo" : v < 60 ? "Medio" : v < 75 ? "Medio-alto" : "Alto");
+const okDot = (v: number | null) => (v === null ? "var(--edge)" : v < 40 ? "var(--forest)" : v < 60 ? "var(--gold)" : "var(--brick)");
+
+// Veredicto orientativo para un inversor: cruza crecimiento, zona y riesgo de okupación. Reglas fijas, no asesoramiento.
+type Rec = { lvl: 0 | 1 | 2 | 3; label: string; color: string; good: string[]; warn: string[]; bad: string[] };
+const REC_LABEL = ["Descartar", "Con cautela", "A estudiar", "Buena candidata"] as const;
+const REC_COLOR = ["var(--brick)", "var(--gold)", "#5a9a72", "var(--forest)"] as const;
+function recommend(r: Row): Rec | null {
+  if (r.score === null) return null;
+  const good: string[] = [], warn: string[] = [], bad: string[] = [];
+  if (r.score < 40) bad.push("crecimiento bajo");
+  else if (r.score < 50) warn.push("crecimiento discreto");
+  else if (r.score >= 60) good.push("crecimiento alto");
+  if (r.zona === null) warn.push("zona sin verificar (sin datos de seguridad)");
+  else if (r.zona < 40) bad.push("zona por debajo de la media");
+  else if (r.zona < 55) warn.push("zona media");
+  else good.push("zona buena");
+  if (r.okR !== null) {
+    if (r.okR >= 75) bad.push("riesgo de okupación alto");
+    else if (r.okR >= 60) warn.push("riesgo de okupación medio-alto");
+    else if (r.okR < 40) good.push("riesgo de okupación bajo");
+  }
+  if ((r.pendK ?? 0) >= 3000) warn.push("planeamiento sobredimensionado");
+  const hard = warn.filter((w) => !w.startsWith("zona sin verificar"));
+  const lvl: Rec["lvl"] =
+    bad.length > 0 ? 0 : r.score >= 60 && r.zona !== null && r.zona >= 55 && r.okR !== null && r.okR < 60 && hard.length === 0 ? 3 : r.score >= 50 && hard.length === 0 ? 2 : 1;
+  return { lvl, label: REC_LABEL[lvl], color: REC_COLOR[lvl], good, warn, bad };
 }
 
 const PROJ_ICON: Record<string, string> = { industria: "🏭", datos: "🖥️", ferrocarril: "🚄", sanidad: "🏥", vivienda: "🏘️" };
@@ -197,14 +235,13 @@ function googleUrl(r: Row): string {
 // ---- Factores del índice: peso nominal, percentil (0-100) y explicación con datos ----
 type Factor = { k: string; label: string; w: number; v: number | null; hint: string; group: "past" | "future" | "context" };
 function buildFactors(s: Row, d: Data | null, hist: boolean): Factor[] {
-  const hasU = s.uni > 0 || s.uniOsm >= 2;
   const yrs = (d?.years[1] ?? 0) - (d?.years[0] ?? 0);
   return [
-    { k: "pop", label: "Población", w: 0.23, v: s.sPop, group: "past", hint: `${sgn(s.g5)}% en ${yrs} años (${sgn(s.abs)} personas); último año ${sgn(s.g1)}%` },
+    { k: "pop", label: "Población", w: 0.25, v: s.sPop, group: "past", hint: `${sgn(s.g5)}% en ${yrs} años (${sgn(s.abs)} personas); último año ${sgn(s.g1)}%` },
     {
       k: "inv",
       label: "Inversión pública",
-      w: 0.08,
+      w: 0.05,
       v: s.sInv,
       group: "past",
       hint:
@@ -214,11 +251,18 @@ function buildFactors(s: Row, d: Data | null, hist: boolean): Factor[] {
             : `Sin dato 2024; media ${fmt.format(s.inv)} €/hab.`
           : `${fmt.format(s.inv24)} €/hab. en 2024 (${fmt.format(Math.round((s.invT ?? 0) / 1000))} mil € en total)`,
     },
-    { k: "uni", label: "Universidad", w: 0.09, v: s.sUni, group: "past", hint: hasU ? `${s.uniN ?? "Campus detectado"}${s.uni > 3 ? ` y ${s.uni - 3} más` : ""}${s.uniD === null ? "" : `; campus a ${fmt1.format(s.uniD)} km del centro`}` : "No se ha detectado universidad" },
+    {
+      k: "uni",
+      label: "Universidad",
+      w: 0.08,
+      v: s.sUni,
+      group: "past",
+      hint: s.uniNear === null ? "Ninguna universidad accesible a menos de 45 km" : `${s.uniNear}${s.uniAt ? ` (${s.uniAt})` : ""}, a ${fmt1.format(s.uniKm ?? 0)} km${s.uniAt ? " por carretera (estimado)" : " del centro"}`,
+    },
     {
       k: "neg",
       label: hist ? "Negocios nuevos" : "Comercios",
-      w: hist ? 0.05 : 0.025,
+      w: hist ? 0.03 : 0.015,
       v: s.sNeg,
       group: "past",
       hint:
@@ -240,7 +284,7 @@ function buildFactors(s: Row, d: Data | null, hist: boolean): Factor[] {
     {
       k: "viv",
       label: "Obra nueva reciente",
-      w: 0.07,
+      w: 0.09,
       v: s.sViv,
       group: "future",
       hint: s.vivN === null ? "Sin datos (el Catastro no cubre País Vasco ni Navarra)" : `${sgn(s.vivN)} viviendas en 5 años (${sgn(s.vivPm ?? 0)} por 1.000 hab.), Catastro 2021–2026`,
@@ -264,7 +308,7 @@ function buildFactors(s: Row, d: Data | null, hist: boolean): Factor[] {
     {
       k: "paro",
       label: "Paro",
-      w: 0.07,
+      w: 0.08,
       v: s.sParo,
       group: "context",
       hint: s.paro === null ? "Sin datos" : `${fmt1.format(s.paro)}% de la población de 18 a 64 años está en paro registrado (SEPE, septiembre)`,
@@ -272,15 +316,23 @@ function buildFactors(s: Row, d: Data | null, hist: boolean): Factor[] {
     {
       k: "paroT",
       label: "Evolución del paro",
-      w: 0.04,
+      w: 0.02,
       v: s.sParoT,
       group: "context",
       hint: s.paroT === null ? "Sin datos" : `${sgn(s.paroT)} puntos en un año (negativo = baja el paro)`,
     },
     {
+      k: "vac",
+      label: "Mercado tensionado",
+      w: 0.04,
+      v: s.sVac,
+      group: "context",
+      hint: s.vac === null ? "Sin datos" : `${fmt1.format(s.vac)}% de viviendas vacías (Censo 2021); cuantas menos, más presión de demanda`,
+    },
+    {
       k: "cos",
       label: "Cerca del mar",
-      w: 0.06,
+      w: 0.05,
       v: s.sCos,
       group: "context",
       hint: s.costa === null ? "Sin datos" : s.costa > 60 ? `A ${fmt.format(Math.round(s.costa))} km del mar: no puntúa ni penaliza` : `A ${fmt1.format(s.costa)} km del mar`,
@@ -291,7 +343,7 @@ function buildFactors(s: Row, d: Data | null, hist: boolean): Factor[] {
       w: 0.1,
       v: s.sCiu,
       group: "context",
-      hint: s.dc === 0 ? "Es una ciudad de más de 100.000 habitantes" : `A ${fmt.format(s.dc)} km de ${s.cn} (más de 100.000 hab.), en línea recta`,
+      hint: s.dc === 0 ? "Es una ciudad de más de 100.000 habitantes" : s.dc > 45 ? `A ${fmt.format(s.dc)} km de ${s.cn}: demasiado lejos, no puntúa ni penaliza` : `A ${fmt.format(s.dc)} km de ${s.cn} (más de 100.000 hab.), por carretera (estimado)`,
     },
   ];
 }
@@ -317,7 +369,8 @@ function ZonePanel({ sel, zref }: { sel: Row; zref: ZRef | undefined }) {
   const nd = sel.zona === null; // sin veredicto: falta la seguridad municipal
   const alerts: string[] = [];
   if (sel.sSeg !== null && sel.sSeg < 25) alerts.push("criminalidad entre las más altas de los municipios grandes");
-  if (sel.sOcup !== null && sel.sOcup < 25) alerts.push("su provincia está entre las de más denuncias por allanamiento/usurpación");
+  if (sel.okR !== null && sel.okR >= 75) alerts.push("riesgo de okupación estimado alto");
+  if ((sel.vac ?? 0) >= 20) alerts.push("mucha vivienda vacía (puede ser segunda residencia)");
   if (sel.sPob !== null && sel.sPob < 25) alerts.push("porcentaje de población con ingresos bajos entre los más altos");
   if (sel.sRenta !== null && sel.sRenta < 25) alerts.push("renta por persona entre las más bajas");
   return (
@@ -345,14 +398,16 @@ function ZonePanel({ sel, zref }: { sel: Row; zref: ZRef | undefined }) {
           }
         />
         <ZoneRow
-          label="Okupación (dato de la provincia)"
-          state={nd ? "nd" : zst(sel.sOcup)}
-          main={sel.ocup === null ? "Sin dato" : `${fmt1.format(sel.ocup)} denuncias de allanamiento/usurpación por 10.000 hab. en su provincia`}
-          sub={
-            sel.ocup === null
-              ? "Interior solo publica este dato por provincia."
-              : `Media nacional: ${fmt1.format(zref?.ocup ?? 0)}${sel.ocupT === null ? "" : `; ${sgn(sel.ocupT)}% desde 2021`}. Interior no lo publica por municipio, así que no puede medirse en ${sel.n}.`
-          }
+          label="Riesgo de okupación (estimado)"
+          state={sel.okR === null ? "nd" : sel.okR < 40 ? "ok" : sel.okR < 60 ? "warn" : "bad"}
+          main={sel.okR === null ? "Sin datos suficientes" : `${okLevel(sel.okR)} (${sel.okR}/100)`}
+          sub={[
+            sel.ocup === null ? null : `Provincia: ${fmt1.format(sel.ocup)} denuncias de allanamiento/usurpación por 10.000 hab. (media nacional ${fmt1.format(zref?.ocup ?? 0)})`,
+            sel.ocupS ? `2021–2025: ${sel.ocupS.map((v) => fmt.format(v)).join(" → ")}` : null,
+            sel.vac === null ? null : `Vivienda vacía: ${fmt1.format(sel.vac)}% (mediana ${fmt1.format(zref?.vac ?? 0)}%)`,
+          ]
+            .filter(Boolean)
+            .join(". ")}
         />
         <ZoneRow
           label="Renta"
@@ -373,7 +428,7 @@ function ZonePanel({ sel, zref }: { sel: Row; zref: ZRef | undefined }) {
           ⚠ Señales de alerta: {alerts.join("; ")}.
         </p>
       )}
-      <p className="mt-2 text-xs text-muted">Seguridad 30 %, renta 30 %, pobreza 30 %, okupación provincial 10 %. Datos del municipio entero, no de calles concretas. No entra en el índice.</p>
+      <p className="mt-2 text-xs text-muted">Seguridad 35 %, riesgo de okupación 30 %, renta 20 %, pobreza 15 %. El riesgo de okupación es una estimación: Interior solo publica las denuncias por provincia, y se combina con la vivienda vacía, la pobreza y los robos en domicilios del municipio. Datos del municipio entero, no de calles concretas.</p>
     </section>
   );
 }
@@ -387,6 +442,65 @@ function Fact({ label, value, dot }: { label: string; value: string; dot?: strin
         {value}
       </div>
     </div>
+  );
+}
+
+// Informe con IA bajo demanda: noticias recientes del municipio (okupación, seguridad, proyectos) con sus fuentes
+type InformeIA = { texto: string; fuentes: { url: string; titulo: string }[]; fecha: string; cache?: boolean };
+function InformePanel({ id, name }: { id: string; name: string }) {
+  const [st, setSt] = useState<{ id: string; loading: boolean; data: InformeIA | null; error: string | null }>({ id, loading: false, data: null, error: null });
+  const cur = st.id === id ? st : { id, loading: false, data: null, error: null }; // al cambiar de municipio se parte de cero
+  const run = async () => {
+    setSt({ id, loading: true, data: null, error: null });
+    try {
+      const res = await fetch("/api/informe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+      const j = await res.json();
+      setSt({ id, loading: false, data: res.ok ? j : null, error: res.ok ? null : (j.error ?? "No se pudo generar el informe.") });
+    } catch {
+      setSt({ id, loading: false, data: null, error: "No se pudo contactar con el servidor." });
+    }
+  };
+  return (
+    <section className="rounded-lg border border-edge bg-white p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-ink">Noticias de la zona (IA)</div>
+          <div className="text-xs text-muted">Okupación, seguridad y proyectos en la prensa reciente de {name}</div>
+        </div>
+        {!cur.data && (
+          <button onClick={run} disabled={cur.loading} className="shrink-0 rounded-lg border border-forest px-3 py-1.5 text-sm font-semibold text-forest hover:bg-tint disabled:opacity-60">
+            {cur.loading ? "Buscando…" : "Generar"}
+          </button>
+        )}
+      </div>
+      {cur.loading && <p className="mt-2 text-xs text-muted">Busca en la web y resume; suele tardar entre 30 segundos y 2 minutos.</p>}
+      {cur.error && <p className="mt-2 text-sm text-brick">{cur.error}</p>}
+      {cur.data && (
+        <div className="mt-2 space-y-1 text-sm">
+          {cur.data.texto.split("\n").map((l, i) =>
+            l.startsWith("## ") ? (
+              <div key={i} className="pt-1.5 text-xs font-semibold text-forest">{l.slice(3)}</div>
+            ) : l.trim() ? (
+              <div key={i} className="text-ink">{l.replace(/^- /, "• ")}</div>
+            ) : null,
+          )}
+          {cur.data.fuentes.length > 0 && (
+            <div className="pt-2 text-xs text-muted">
+              Fuentes:{" "}
+              {cur.data.fuentes.map((f, i) => (
+                <span key={f.url}>
+                  {i > 0 && " · "}
+                  <a href={f.url} target="_blank" rel="noopener noreferrer" className="text-forest underline">
+                    {f.titulo.length > 50 ? `${f.titulo.slice(0, 50)}…` : f.titulo}
+                  </a>
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="pt-1 text-xs text-muted">Generado con IA el {new Date(cur.data.fecha).toLocaleDateString("es-ES")}; puede contener errores: abre las fuentes.</div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -437,6 +551,7 @@ function Detail({
   const cons = calc.filter((f) => f.delta !== null && f.delta <= -0.4).sort((a, b) => (a.delta ?? 0) - (b.delta ?? 0)).slice(0, 5);
   const maxAbs = Math.max(1, ...[...pros, ...cons].map((f) => Math.abs(f.delta ?? 0)));
   const si = sect?.[sel.id];
+  const rec = recommend(sel);
   const yrsN = (data?.years[1] ?? 0) - (data?.years[0] ?? 0);
   const detailWeight = (w: number) => `${fmt1.format(w * 100).replace(",0", "")}%`;
 
@@ -478,21 +593,42 @@ function Detail({
           </p>
         </div>
 
+        {rec && (
+          <div className="rounded-lg border-2 p-3" style={{ borderColor: rec.color }}>
+            <div className="flex items-center gap-2">
+              <span className="h-3 w-3 rounded-full" style={{ background: rec.color }} />
+              <span className="text-base font-bold text-ink">{rec.label}</span>
+              <span className="ml-auto text-xs text-muted">Veredicto orientativo</span>
+            </div>
+            <ul className="mt-1.5 space-y-0.5 text-sm">
+              {rec.bad.map((t) => (
+                <li key={t} className="font-medium text-brick">✕ {t}</li>
+              ))}
+              {rec.warn.map((t) => (
+                <li key={t} className="text-ink">⚠ {t}</li>
+              ))}
+              {rec.good.map((t) => (
+                <li key={t} className="text-forest">✓ {t}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-3">
           <ScoreCard title="Índice de crecimiento" v={sel.score} rank={rankG} total={total} />
-          <ScoreCard title="Futuro (20 % del índice)" v={sel.fut} rank={rankF} total={total} />
+          <ScoreCard title="Futuro (22 % del índice)" v={sel.fut} rank={rankF} total={total} />
         </div>
 
         <div className="grid grid-cols-2 gap-2">
           <Fact label={`Población en ${yrsN} años`} value={`${sgn(sel.g5)}%`} />
           <Fact
             label="Universidad"
-            value={!(sel.uni > 0 || sel.uniOsm >= 2) ? "No hay" : sel.uniD === null ? "Sí" : `a ${fmt1.format(sel.uniD)} km del centro`}
+            value={sel.uniKm === null ? "Ninguna cerca" : `${fmt1.format(sel.uniKm)} km${sel.uniAt ? ` (${sel.uniAt})` : ""}`}
           />
           <Fact label="Vivienda prevista" value={sel.pendK === null ? "Sin dato" : `${fmt.format(sel.pendK)} por 1.000 hab.`} />
           <Fact label="Inversión pública" value={sel.inv24 === null ? "Sin dato" : `${fmt.format(sel.inv24)} €/hab.`} />
           <Fact label="Zona" value={sel.zona === null ? "Sin valorar" : `${zoneShort(sel.zona)} (${sel.zona}/100)`} dot={zoneDot(sel.zona)} />
-          <Fact label="Renta por persona" value={sel.renta === null ? "Sin dato" : `${fmt.format(sel.renta)} €`} />
+          <Fact label="Riesgo de okupación" value={sel.okR === null ? "Sin dato" : `${okLevel(sel.okR)} (${sel.okR}/100)`} dot={okDot(sel.okR)} />
         </div>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -508,6 +644,8 @@ function Detail({
             Buscar en Google
           </a>
         </div>
+
+        <InformePanel id={sel.id} name={sel.n} />
 
         <section>
           <h3 className="text-base font-semibold">Qué lo empuja y qué lo frena</h3>
@@ -627,6 +765,8 @@ type Filters = {
   minViv: number | null; // obra nueva reciente por 1.000 hab., mínimo
   minPend: number | null; // viviendas previstas pendientes por 1.000 hab., mínimo
   minInv: number | null; // inversión pública €/hab., mínimo
+  minRec: number; // veredicto mínimo (0 = cualquiera; 2 = a estudiar o mejor; 3 = solo buenas candidatas)
+  maxOk: number | null; // riesgo de okupación estimado máximo
   zone: number; // 0 = cualquiera; 40 = buena o media (valorada); 60 = solo buena (valorada)
   minRenta: number | null;
   maxPob: number | null;
@@ -639,7 +779,7 @@ type Filters = {
   minFut: number; // perspectivas de futuro mínimas (0 = sin mínimo)
 };
 const DEFAULTS: Filters = {
-  q: "", ccaa: "", prov: "", minPop: 5000, maxPop: 0, minG5: null, minViv: null, minPend: null, minInv: null, zone: 0,
+  q: "", ccaa: "", prov: "", minPop: 5000, maxPop: 0, minG5: null, minViv: null, minPend: null, minInv: null, minRec: 0, maxOk: null, zone: 0,
   minRenta: null, maxPob: null, maxVt: null, near: null, onlyUni: false, onlyProj: false, minScore: 0, maxScore: 100, minFut: 0,
 };
 // Secciones de filtros (chips de la barra superior): id, título y los campos que controlan (para contar y restablecer)
@@ -648,7 +788,7 @@ const SECTIONS: { id: string; label: string; title: string; keys: (keyof Filters
   { id: "tamano", label: "Tamaño", title: "Tamaño del municipio", keys: ["minPop", "maxPop"] },
   { id: "crec", label: "Crecimiento", title: "Crecimiento ya observado", keys: ["minG5", "minViv", "minScore", "maxScore", "minFut"] },
   { id: "plan", label: "Planeamiento", title: "Planeamiento y gasto público", keys: ["minPend", "minInv"] },
-  { id: "zona", label: "Zona", title: "Calidad de la zona", keys: ["zone", "minRenta", "maxPob"] },
+  { id: "zona", label: "Zona", title: "Zona y veredicto", keys: ["minRec", "maxOk", "zone", "minRenta", "maxPob"] },
   { id: "precio", label: "Precio", title: "Precio de la vivienda", keys: ["maxVt"] },
   { id: "cerca", label: "Cercanía", title: "Cercanía a una ciudad grande", keys: ["near"] },
   { id: "extras", label: "Extras", title: "Extras", keys: ["onlyUni", "onlyProj"] },
@@ -772,6 +912,8 @@ export default function Explorer() {
       if (f.onlyUni && !(r.uni > 0 || r.uniOsm >= 2)) continue;
       if (f.onlyProj && !(r.proj?.length ?? 0)) continue;
       if (f.zone > 0 && (r.zona === null || r.zona < f.zone)) continue;
+      if (f.maxOk !== null && (r.okR === null || r.okR >= f.maxOk)) continue;
+      if (f.minRec > 0 && (recommend(r)?.lvl ?? 0) < f.minRec) continue;
       if (f.minG5 !== null && r.g5 < f.minG5) continue;
       if (f.minViv !== null && (r.vivPm === null || r.vivPm < f.minViv)) continue;
       if (f.minPend !== null && (r.pendK === null || r.pendK < f.minPend)) continue;
@@ -876,7 +1018,7 @@ export default function Explorer() {
   }
 
   const hist = data?.negHist ?? false;
-  const wNeg = hist ? 5 : 2.5;
+  const wNeg = hist ? 3 : 1.5;
   const hasUni = (r: Row) => r.uni > 0 || r.uniOsm >= 2;
   // Posición de cada municipio en los dos rankings (entre los de 1.000 hab. o más)
   const ranks = useMemo(() => {
@@ -993,7 +1135,7 @@ export default function Explorer() {
                 className="mt-1 h-2 w-full cursor-pointer accent-forest"
               />
               <p className="mt-1 text-xs font-normal text-muted">
-                El futuro ya cuenta un 20 % del índice; aquí puedes exigir además un mínimo propio (planeamiento, obra nueva y suelo de actividad).
+                El futuro ya cuenta un 22 % del índice; aquí puedes exigir además un mínimo propio (planeamiento, obra nueva y suelo de actividad).
               </p>
             </div>
           </>
@@ -1020,6 +1162,19 @@ export default function Explorer() {
       case "zona":
         return (
           <>
+            <Sel
+              label="Veredicto orientativo"
+              value={String(f.minRec)}
+              onChange={(v) => set({ minRec: Number(v) })}
+              options={[["0", "Cualquiera"], ["1", "Quitar los descartados"], ["2", "A estudiar o mejor"], ["3", "Solo buenas candidatas"]]}
+              note="Cruza crecimiento, zona y riesgo de okupación. Una buena candidata exige zona verificada (más de 20.000 hab.)."
+            />
+            <Sel
+              label="Riesgo de okupación (estimado)"
+              value={optNum(f.maxOk)}
+              onChange={(v) => set({ maxOk: numOrNull(v) })}
+              options={opts([40, 60, 75], (v) => (v === 40 ? "Solo bajo" : v === 60 ? "Bajo o medio" : "Quitar solo el alto"))}
+            />
             <Sel
               label="Valoración de la zona"
               value={String(f.zone)}
@@ -1094,7 +1249,20 @@ export default function Explorer() {
     <div className="flex h-dvh flex-col bg-paper text-ink">
       <header ref={barRef} className="relative z-30 border-b border-black/40 bg-charcoal">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 md:px-5 lg:flex-nowrap">
-          <h1 className="order-1 text-xl font-bold leading-none tracking-tight text-gold">Inmo Growth</h1>
+          <h1 className="order-1 text-xl font-bold leading-none tracking-tight">
+            <button
+              onClick={() => {
+                setSel(null);
+                setF(DEFAULTS);
+                setOpen(null);
+                map.current?.flyTo({ center: [-3.7, 40.2], zoom: 5.2, essential: true });
+              }}
+              className="rounded text-gold hover:text-white"
+              title="Volver al inicio"
+            >
+              Inmo Growth
+            </button>
+          </h1>
           <input
             className="order-3 h-9 w-full rounded-md border border-transparent bg-white px-3 text-sm text-ink placeholder:text-muted focus:border-gold focus:outline-none md:order-2 md:w-auto md:max-w-sm md:flex-1 lg:w-56 lg:flex-none"
             placeholder="Buscar municipio…"
@@ -1164,16 +1332,13 @@ export default function Explorer() {
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-1.5">
                           <span className="truncate text-[15px] font-semibold leading-snug">{r.n}</span>
-                          {r.zona !== null && (
-                            <span
-                              className="h-2 w-2 shrink-0 rounded-full"
-                              style={{ background: zoneDot(r.zona) }}
-                              title={`${zoneShort(r.zona)} (seguridad, renta y pobreza)`}
-                            />
-                          )}
+                          {(() => {
+                            const rc = recommend(r);
+                            return rc ? <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: rc.color }} title={`${rc.label}: ${[...rc.bad, ...rc.warn, ...rc.good].join(", ")}`} /> : null;
+                          })()}
                         </span>
                         <span className="block truncate text-[13px] text-muted">
-                          {r.prov} · {fmt.format(r.pop)} hab. · {sgn(r.g5)}%{hasUni(r) ? " · Universidad" : ""}
+                          {recommend(r)?.label ?? "Sin índice"} · {r.prov} · {fmt.format(r.pop)} hab. · {sgn(r.g5)}%{hasUni(r) ? " · Universidad" : ""}
                           {r.proj ? " · Proyecto" : ""}
                         </span>
                       </span>
@@ -1191,35 +1356,38 @@ export default function Explorer() {
             <p>Puntuación 0-100 como media ponderada de percentiles entre municipios de 1.000 hab. o más. Si falta un indicador se reponderan los demás.</p>
             <ul className="list-disc space-y-1 pl-5">
               <li>
-                <b>23 % población</b>: crecimiento total, último año y personas ganadas (INE).
+                <b>25 % población</b>: crecimiento total, último año y personas ganadas (INE).
               </li>
               <li>
-                <b>8 % inversión pública</b> por habitante: capítulo 6, media 2019/2024 (Hacienda).
+                <b>5 % inversión pública</b> por habitante: capítulo 6, media 2019/2024 (Hacienda).
               </li>
               <li>
-                <b>9 % universidad</b>: tamaño del campus, rebajado si está lejos del centro (Wikidata y OpenStreetMap).
+                <b>8 % universidad</b>: mejor universidad a menos de 45 km por carretera estimada, según su tamaño y lo cerca que esté (Wikidata y OpenStreetMap).
               </li>
               <li>
                 <b>{wNeg} % {hist ? "negocios nuevos" : "comercios"}</b>: supermercados y gimnasios por habitante
                 {hist ? ", nov-2020 frente a hoy" : ", estado actual"} (OpenStreetMap).
               </li>
               <li>
-                <b>20 % futuro</b>: 9 % vivienda prevista en el planeamiento y 4 % suelo para actividad económica (SIU) y 7 % obra nueva de los últimos 5 años (Catastro).
+                <b>22 % futuro</b>: 9 % obra nueva de los últimos 5 años (Catastro), 9 % vivienda prevista en el planeamiento y 4 % suelo para actividad económica (SIU).
               </li>
               <li>
                 <b>8 % población joven</b>: edad media y % de menores de 18 años (INE, Atlas de renta).
               </li>
               <li>
-                <b>11 % empleo</b>: 7 % paro registrado sobre la población de 18 a 64 años y 4 % su variación en un año (SEPE).
+                <b>10 % empleo</b>: 8 % paro registrado sobre la población de 18 a 64 años y 2 % su variación en un año (SEPE).
               </li>
               <li>
-                <b>10 % cerca de una ciudad grande</b> (más de 100.000 hab.) y <b>6 % cerca del mar</b>: distancia en línea recta. Si está a más de 60 km del
-                mar, ese 6 % no cuenta ni penaliza.
+                <b>4 % mercado tensionado</b>: poca vivienda vacía (Censo 2021, INE).
+              </li>
+              <li>
+                <b>10 % cerca de una ciudad grande</b> (más de 100.000 hab.) y <b>5 % cerca del mar</b>: distancia por carretera estimada a la ciudad; el mar, en línea recta. Si está a más de 60 km del
+                mar, o a más de 45 km por carretera de una ciudad o universidad, ese indicador no cuenta ni penaliza.
               </li>
             </ul>
             <p>
               Las <b>perspectivas de futuro</b> (planeamiento y obra nueva) ya forman parte del
-              índice: pesan un 20 %. En el filtro &quot;Crecimiento&quot; puedes exigir además un mínimo de futuro.
+              índice: pesan un 22 %. En el filtro &quot;Crecimiento&quot; puedes exigir además un mínimo de futuro.
             </p>
             <p className="text-xs text-muted">
               <b>Planeamiento (SIU):</b> son viviendas previstas y aún no construidas en áreas de desarrollo urbanístico, según el planeamiento vigente
@@ -1229,10 +1397,11 @@ export default function Explorer() {
               partir de prensa, con su fuente: no es exhaustiva, por eso no entra en el índice (solo se muestra en la ficha). El Catastro no cubre País Vasco ni Navarra.
             </p>
             <p className="text-xs text-muted">
-              <b>Calidad de la zona</b> (buena ≥60, media 40–60, por debajo de la media &lt;40): seguridad (Interior, solo capitales y municipios de más de 20.000
-              hab.), renta y pobreza (INE) y okupación (Interior, solo provincial). Solo se valora si hay seguridad municipal; el resto aparece como
-              &quot;Zona sin valorar&quot; (preferimos no valorar a dar por buena una zona sin evidencia). Se muestra aparte y no entra en el índice de crecimiento; el
-              filtro &quot;Solo zonas valoradas buenas o medias&quot; deja fuera lo que está por debajo de 40 y lo no valorado. Los umbrales son orientativos.
+              <b>Zona</b> (buena ≥60, media 40–60, floja &lt;40): seguridad 35 % (Interior, solo capitales y municipios de más de 20.000 hab.), riesgo de
+              okupación 30 %, renta 20 % y pobreza 15 % (INE). Sin seguridad municipal no se valora. El <b>riesgo de okupación</b> es una estimación:
+              denuncias de allanamiento/usurpación de la provincia (45 %), vivienda vacía del municipio (30 %), pobreza (15 %) y robos en domicilios (10 %).
+              El <b>veredicto orientativo</b> cruza crecimiento, zona y okupación con reglas fijas: descarta si la zona es floja, el riesgo de okupación es
+              alto o el crecimiento es bajo; solo da &quot;buena candidata&quot; con crecimiento ≥60, zona verificada ≥55 y riesgo de okupación &lt;60.
             </p>
             <p className="text-xs text-muted">
               Los puntos de OpenStreetMap se asignan al municipio más cercano (aproximación) y su mapeo mejora con los años. No es asesoramiento financiero.
