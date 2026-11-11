@@ -11,7 +11,7 @@ type Muni = {
   id: string; n: string; prov: string; pop: number; score: number | null; zona: number | null; okR: number | null;
   vt: number | null; renta: number | null; uniNear: string | null; uniKm: number | null; dc: number; cn: string; vac: number | null; ocup: number | null; crim: number | null; g5: number; pendK: number | null; paro: number | null;
 };
-const VERSION = 2; // cambia al cambiar el formato del informe: invalida la caché anterior
+const VERSION = 3; // cambia al cambiar el formato del informe: invalida la caché anterior
 type Informe = { v?: number; id: string; fecha: string; texto: string; fuentes: { url: string; titulo: string }[]; modelo: string; uso?: { entrada: number; salida: number; busquedas: number } };
 
 const MODEL = process.env.INFORME_MODEL ?? "claude-haiku-5-5";
@@ -27,34 +27,22 @@ async function loadMunis() {
   return munis;
 }
 
-const SYSTEM = `Ayudas a un inversor inmobiliario particular a valorar un municipio de España para comprar una vivienda y alquilarla.
-No vive allí y quiere poder decidir sin desplazarse, así que este informe sustituye a la visita: debe salir de él sabiendo cuánto cuesta
-comprar, por cuánto se alquila, quién alquila, qué zonas del municipio conviene buscar o evitar y qué está cambiando.
+const SYSTEM = `Ayudas a un inversor particular que no vive en el municipio a decidir si compra allí una vivienda para alquilarla.
+La aplicación ya le muestra las estadísticas oficiales; tú le das, muy resumido, lo que solo está en portales inmobiliarios y prensa local.
 
-La aplicación ya le muestra estadísticas oficiales (padrón, Catastro, SEPE, Interior), y se te pasan las principales. Tú aportas lo que
-no está ahí: precios actuales de venta y de alquiler según los portales e informes inmobiliarios, y lo que cuenta la prensa local y el
-ayuntamiento sobre barrios y urbanizaciones concretos, okupación, seguridad, proyectos, transporte y servicios.
-
-Busca en la web y resume solo lo que encuentres en fuentes concretas, de los dos últimos años salvo que no haya nada más reciente.
-El inversor va a mover dinero con esto: da cifras con su fuente y su fecha, nombra barrios y urbanizaciones cuando la fuente lo haga, y
-cuando no encuentres algo dilo en una línea ("no he encontrado datos de alquiler de este municipio") en lugar de rellenar con
-generalidades o con cifras de la provincia sin avisar. Redacta cada dato una sola vez y con tus palabras, en español: no pegues detrás la frase literal de la fuente. Si das la rentabilidad bruta, calcúlala tú con el alquiler y el precio que hayas
-encontrado (alquiler anual entre precio de compra) y di que es una estimación. Tienes un número limitado de búsquedas: empieza por los
-precios de venta y alquiler y reparte el resto entre los demás temas.
-
-Formato: texto plano en español, sin tablas ni negritas, unas 350 palabras como máximo. Usa exactamente estos encabezados, cada uno en
-su línea y precedido de "## ", con una a cuatro líneas debajo que empiecen por "- ":
-## Precios de compra
-## Alquiler y rentabilidad
-## Quién alquila y qué se busca
-## Zonas: dónde sí y dónde no
-## Okupación y seguridad
-## Proyectos, empleo y transporte
-## En resumen
+Busca en la web y escribe un resumen MUY breve (80 palabras como máximo en total), en español, texto plano, con exactamente estos
+encabezados en líneas que empiecen por "## ", y debajo líneas que empiecen por "- ":
+## Comprar
+- una línea: precio medio de venta (€/m² o precio típico), con fuente y mes.
+## Alquilar
+- una línea: alquiler típico (€/mes o €/m²) y rentabilidad bruta estimada por ti (alquiler anual entre precio); di que es estimada.
+## A tener en cuenta
+- dos o tres líneas cortas: zonas a buscar o evitar, okupación o seguridad, proyectos que cambien la demanda. Solo lo que encuentres.
 ## Fuentes
-"En resumen" son dos líneas: qué pesa más a favor y en contra, y qué le quedaría por comprobar a distancia (y cómo: a quién llamar o
-qué pedir). No des una recomendación de compra. Bajo "Fuentes", una línea por cada página de la que hayas sacado algo, con la forma
-"- título | URL", copiando la URL tal cual apareció en los resultados de búsqueda.`;
+- una línea por página usada, con la forma "- título | URL", copiando la URL tal cual apareció en los resultados.
+
+Si no encuentras un dato, escribe "Sin datos fiables" en esa línea. Redacta cada línea con tus palabras y una sola vez: no copies\nfrases, tablas ni fragmentos de las páginas (nada con "|" salvo en Fuentes). No des recomendación de compra.
+Tienes pocas búsquedas: empieza por los precios de venta y alquiler.`;
 
 export async function POST(req: Request) {
   const { id } = (await req.json().catch(() => ({}))) as { id?: string };
@@ -98,10 +86,10 @@ export async function POST(req: Request) {
       msg = await client.messages
         .stream({
           model: MODEL,
-          max_tokens: 20000,
+          max_tokens: 12000,
           output_config: { effort: "medium" },
           system: SYSTEM,
-          tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 10, user_location: { type: "approximate", country: "ES" } }],
+          tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 6, user_location: { type: "approximate", country: "ES" } }],
           messages,
         })
         .finalMessage();
@@ -135,6 +123,11 @@ export async function POST(req: Request) {
       }
       texto = texto.slice(0, cut).trim();
     }
+    // Limpieza: a veces el modelo pega trozos de tablas de los portales ("| 2.902 €/m² | 0,0 % |"); se corta la línea en el primer "|"
+    texto = texto
+      .split("\n")
+      .map((l) => (l.startsWith("- ") && l.includes(" | ") ? l.slice(0, l.indexOf(" | ")).trimEnd() + "." : l))
+      .join("\n");
     if (!texto) return Response.json({ error: "El informe ha llegado vacío; inténtalo de nuevo." }, { status: 502 });
 
     const informe: Informe = {

@@ -35,8 +35,14 @@ curada de proyectos (muestra incompleta; sigue visible en la ficha).
 La **zona** se valora aparte (no entra en el índice): seguridad 35 %, riesgo de okupación 30 %, renta 20 % y pobreza 15 %. Solo se valora cuando hay
 seguridad municipal (Interior publica criminalidad solo para capitales y municipios de más de 20.000 habitantes); si no, aparece como "sin valorar".
 
-El **riesgo de okupación** es una estimación por municipio: denuncias de allanamiento/usurpación de la provincia (45 %; Interior no las publica por
-municipio), vivienda vacía del municipio (30 %, Censo 2021), pobreza (15 %) y robos con fuerza en domicilios (10 %, donde existe).
+El **riesgo de okupación** es una estimación por municipio: no hay datos públicos por municipio ni por partido judicial. Se parte de la
+provincia, con dos fuentes comparadas con su media nacional (denuncias de allanamiento y usurpación de Interior y juicios por ocupación ilegal
+de viviendas del CGPJ), y se reparte entre sus municipios según tamaño ((hab./10.000)^0,25), vivienda vacía y pobreza, porque la okupación se
+concentra en ciudades grandes. Escala: en la media nacional = 40, el doble = 63, el triple = 78.
+
+El **turismo** se muestra como dato (no entra en el índice): porcentaje de viviendas turísticas y plazas por 100 habitantes, de la estadística
+experimental del INE "Viviendas turísticas en España", y pernoctaciones anuales por habitante en alojamientos turísticos
+(INE, ocupación en alojamientos turísticos; solo para los ~130 municipios que el INE trata como puntos turísticos).
 
 El **veredicto orientativo** (descartar / con cautela / a estudiar / buena candidata) cruza crecimiento, zona y riesgo de okupación con reglas fijas.
 Es un filtro estadístico, no una recomendación personalizada de inversión.
@@ -60,7 +66,7 @@ python3 scripts/build_dataset.py        # genera public/municipios.json
 ```
 
 Cada fuente tiene su script en `scripts/` (descarga y procesado): `fetch_osm.py`, `fetch_osm_hist.py`, `process_osm.py`, `process_gasto.py`,
-`process_uni.py`, `process_suelo.py`, `process_tasado.py`, `process_futuro.py`, `process_siu.py`, `process_sectores.py`, `fetch_edad.py`, `process_vacias.py`, `process_paro.py`, `process_costa.py`, `fetch_renta.py` y
+`process_uni.py`, `process_suelo.py`, `process_tasado.py`, `process_futuro.py`, `process_siu.py`, `process_sectores.py`, `fetch_edad.py`, `process_vacias.py`, `process_turismo.py`, `process_oat.py`, `process_tasado_prov.py`, `process_cgpj.py`, `process_serie.py`, `process_paro.py`, `process_costa.py`, `fetch_renta.py` y
 `process_seguridad.py`. La cabecera de cada uno explica de dónde descarga y qué genera. Los proyectos concretos están en
 `data/curated/proyectos.json` (cada entrada necesita código INE, nombre, tipo, estado y una URL).
 

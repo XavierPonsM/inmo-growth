@@ -57,10 +57,28 @@ for line in open(RAW / "osm_uni_now.csv", encoding="utf-8"):
             osm[j] += 1
             dist[j].append(km(float(p[0]), float(p[1]), idx[j]))
 
+# Nombres de OpenStreetMap (amenity=university con nombre) para los municipios que Wikidata no cubre: sede de la UIB en Alaior, UC3M en Getafe...
+# Se descargan con: [out:csv(::lat,::lon,name;true;"\t")];area["ISO3166-1"="ES"][admin_level=2]->.es;nwr["amenity"="university"](area.es);out center;
+osm_names = collections.defaultdict(collections.Counter)
+_namef = RAW / "osm_uni_names.tsv"
+if _namef.exists():
+    for line in open(_namef, encoding="utf-8").read().splitlines()[1:]:
+        p_ = line.split("\t")
+        if len(p_) >= 3 and p_[2].strip():
+            try:
+                j = nearest(float(p_[0]), float(p_[1]), 8)
+            except ValueError:
+                continue
+            nm = p_[2].strip()
+            if j and IS_UNI.search(nm) or (j and re.match(r"^(Campus|Facultad|Escuela|Sede|Seu|Centre|Centro)\b", nm, re.I)):
+                osm_names[j][nm] += 1
+
 rows = []
-for ine in sorted(set(wd) | {k for k, v in osm.items() if v >= 2}):
+for ine in sorted(set(wd) | {k for k, v in osm.items() if v >= 1}):  # una sola sede en OSM también cuenta (p. ej. la UIB en Alaior)
     names = sorted(wd.get(ine, []))
-    rows.append([ine, len(names), osm.get(ine, 0), "; ".join(names[:3]), round(min(dist[ine]), 1) if dist.get(ine) else ""])
+    if not names and osm_names.get(ine):  # sin Wikidata: nombres de OSM, primero los que se llaman "Universidad..."
+        names = sorted(osm_names[ine], key=lambda n: (not IS_UNI.search(n), -osm_names[ine][n], n))
+    rows.append([ine, len(wd.get(ine, [])), osm.get(ine, 0), "; ".join(names[:8]), round(min(dist[ine]), 1) if dist.get(ine) else ""])
 with open(RAW / "universidades.csv", "w", newline="", encoding="utf-8") as f:
     w = csv.writer(f); w.writerow(["ine", "wd", "osm", "names", "dkm"]); w.writerows(rows)
 print(len(rows), "municipios con universidad;", sum(1 for r in rows if r[1]), "por Wikidata;", sum(1 for r in rows if r[2] >= 2), "por OSM")

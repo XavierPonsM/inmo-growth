@@ -1,7 +1,7 @@
 """Valor tasado medio de la vivienda libre (€/m²) en municipios de más de 25.000 habitantes.
 Fuente: Ministerio de Transportes, Boletín Estadístico Online, "Valor tasado de la vivienda", tabla 5 (trimestral).
 La tabla no trae código INE: se empareja por provincia + nombre normalizado con los nombres INE del padrón (data/raw/pob.json).
-Salida: data/raw/tasado_municipios.csv  (ine, now, ago5, tasaciones)
+Salida: data/raw/tasado_municipios.csv  (ine, now, ago5, tasaciones) y data/raw/tasado_serie.csv (ine, año, €/m² medio del año)
   now  = media de los últimos 4 trimestres; ago5 = media de los mismos 4 trimestres de hace 5 años.
 Uso: python3 scripts/process_tasado.py   (requiere xlrd; ejecutar antes build_dataset.py con public/municipios.json ya generado)
 """
@@ -93,3 +93,31 @@ for (prov, m), d in now.items():
 with open(ROOT / "data/raw/tasado_municipios.csv", "w", newline="", encoding="utf-8") as f:
     w = csv.writer(f); w.writerow(["ine", "now", "ago5", "tasaciones"]); w.writerows(res)
 print(len(res), "municipios emparejados;", len(miss), "sin emparejar:", miss[:25])
+
+# Serie anual (media de los trimestres de cada año) para la gráfica de la ficha, de 2015 en adelante
+_years = {}
+for nm in sheets:
+    mm = re.match(r"^T([1-4])A(\d{4})$", nm)
+    if mm and int(mm.group(2)) >= 2015:
+        _years.setdefault(int(mm.group(2)), []).append(nm)
+_ine_of = {}
+for (prov, m) in now:
+    ks = keys(ALIAS.get(m, m))
+    ine = None
+    for k in ks:
+        ine = ine or index.get((prov, k))
+    if not ine:
+        cand = set().union(*(by_name.get(k, set()) for k in ks))
+        ine = next(iter(cand)) if len(cand) == 1 else None
+    if ine:
+        _ine_of[(prov, m)] = ine
+serie = []
+for y in sorted(_years):
+    if len(_years[y]) < 2:
+        continue
+    for key, d in collect(_years[y]).items():
+        if key in _ine_of and d["v"]:
+            serie.append([_ine_of[key], y, round(sum(d["v"]) / len(d["v"]))])
+with open(ROOT / "data/raw/tasado_serie.csv", "w", newline="", encoding="utf-8") as f:
+    w = csv.writer(f); w.writerow(["ine", "anyo", "eur_m2"]); w.writerows(serie)
+print(len(serie), "datos anuales;", sorted(_years))

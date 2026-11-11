@@ -111,6 +111,11 @@ for r in rows:
     t = tasado.get(r["id"])
     r["vt"] = int(t["now"]) if t else None
     r["vtG"] = round((int(t["now"]) / int(t["ago5"]) - 1) * 100) if t and t["ago5"] else None  # % en 5 años
+_vts = {}
+for _t in csv.DictReader(open(ROOT / "data/raw/tasado_serie.csv")):
+    _vts.setdefault(_t["ine"], []).append([int(_t["anyo"]), int(_t["eur_m2"])])
+for r in rows:
+    r["vtS"] = sorted(_vts[r["id"]]) if r["id"] in _vts and len(_vts[r["id"]]) >= 3 else None  # [año, €/m²] para la gráfica
     r["vtN"] = int(t["tasaciones"]) if t else None  # nº de tasaciones en los últimos 4 trimestres
 
 # Futuro: proyección INE por provincia + suelo disponible y obra nueva (Catastro, 2021 vs 2026; no cubre País Vasco ni Navarra)
@@ -185,7 +190,7 @@ for i, r in enumerate(rows):
 
 # Universidades: para cada municipio, la mejor universidad accesible = tamaño del campus x factor de cercanía exp(-km/12)
 # (km = ruta estimada centro a centro + distancia del campus al centro de su municipio). Con campus propio, solo cuenta el campus al centro.
-_usrc = [i for i, r in enumerate(rows) if r["uniSize"] > 0 and (r["uni"] > 0 or r["uniOsm"] >= 2)]
+_usrc = [i for i, r in enumerate(rows) if r["uniSize"] > 0 and (r["uni"] > 0 or r["uniOsm"] >= 1)]
 _DU = dijkstra(GRAPH, directed=False, indices=_usrc, limit=CIRCUITO_MAX)
 _us0 = np.array([min(100.0, 100 * math.log1p(rows[i]["uniSize"]) / math.log1p(40)) for i in _usrc])
 _off = np.array([rows[i]["uniD"] or 0.0 for i in _usrc])
@@ -197,9 +202,10 @@ for i, r in enumerate(rows):
     r["uniS"] = float(_val[k, i])                                         # puntuación 0-100 de acceso universitario
     if _val[k, i] > 0.5:
         u = rows[_usrc[k]]
-        _nm = (u["uniN"] or "Campus").split("; ")
+        _nm = (u["uniN"] or "Sede universitaria").split("; ")
         _short = u["n"].split("/")[-1]
-        r["uniNear"] = next((x for x in _nm if _short in x), _nm[0])      # universidad (o campus) que más aporta
+        _pub = [x for x in _nm if x.startswith(("Universidad de ", "Universitat de ", "Universidade de ", "Universidad Complutense", "Universitat Politècnica"))]
+        r["uniNear"] = next((x for x in _nm if _short in x), _pub[0] if _pub else _nm[0])  # universidad (o sede) que más aporta
         r["uniKm"] = round(float(_km_u[k, i]), 1)
         r["uniAt"] = u["n"].split("/")[-1] if _usrc[k] != i else None   # municipio donde está, si no es el propio
     else:
@@ -233,6 +239,27 @@ crim = {r["ine"]: r for r in csv.DictReader(open(ROOT / "data/raw/crimen_mun.csv
 usu = {r["prov"]: r for r in csv.DictReader(open(ROOT / "data/raw/usurpacion_prov.csv", encoding="utf-8"))}
 renta = {r["ine"]: r for r in csv.DictReader(open(ROOT / "data/raw/renta_mun.csv", encoding="utf-8"))}
 vac = {r["ine"]: r for r in csv.DictReader(open(ROOT / "data/raw/vacias_mun.csv"))}
+tur = {r["ine"]: r for r in csv.DictReader(open(ROOT / "data/raw/turismo_mun.csv"))}
+
+
+# Pernoctaciones en alojamientos turísticos (INE, puntos turísticos): se casan por nombre, con o sin artículo y en cualquiera de sus idiomas
+def _nkey(n):
+    import unicodedata
+    out = set()
+    for alt in n.split("/"):
+        t = unicodedata.normalize("NFD", alt.lower()).encode("ascii", "ignore").decode().strip()
+        if "," in t:  # "alcazares, los" -> "los alcazares"
+            a_, b_ = [x.strip() for x in t.split(",", 1)]
+            t = f"{b_} {a_}"
+        out.add(" ".join(t.replace("'", " ").replace("-", " ").split()))
+    return out
+
+
+_pern = {}
+_PERN_ALIAS = {"Santa Eulalia": "Santa Eulària des Riu", "San José": "Sant Josep de sa Talaia"}  # el INE abrevia algunos puntos turísticos; sin el alias casaría con otro municipio
+for _p in csv.DictReader(open(ROOT / "data/raw/pernoct_puntos.csv", encoding="utf-8")):
+    for k in _nkey(_PERN_ALIAS.get(_p["nombre"], _p["nombre"])):
+        _pern.setdefault(k, []).append(_p)
 _pp = {}
 for r in rows:
     _pp[r["p"]] = _pp.get(r["p"], 0) + r["pop"]
@@ -262,6 +289,19 @@ for r in rows:
     vc = vac.get(r["id"])
     r["vac"] = round(int(vc["vacias"]) / int(vc["viviendas"]) * 100, 1) if vc and int(vc["viviendas"]) > 0 else None  # % de viviendas vacías (Censo 2021)
     r["vacN"] = int(vc["vacias"]) if vc else None
+    t = tur.get(r["id"])
+    r["tur"] = float(t["pct"]) if t and t["pct"] != "" else None                  # % de viviendas turísticas (INE, experimental)
+    r["turN"] = int(t["viviendas"]) if t and t["viviendas"] != "" else None
+    r["turP"] = round(int(t["plazas"]) / r["pop"] * 100, 1) if t and t["plazas"] != "" and r["pop"] else None  # plazas turísticas por 100 hab.
+    _hits = {id(p): p for k in _nkey(r["n"]) for p in _pern.get(k, [])}
+    if len(_hits) == 1 and r["pop"] >= 1000:
+        _p = next(iter(_hits.values()))
+        r["pern"] = int(_p["pernoct_ult"])                                       # pernoctaciones al año en alojamientos turísticos
+        r["pernH"] = round(int(_p["pernoct_ult"]) / r["pop"], 1)                  # por habitante
+        r["pernT"] = round((int(_p["pernoct_ult"]) / int(_p["pernoct_ant"]) - 1) * 100, 1) if _p["pernoct_ant"] else None
+        r["pernY"] = int(_p["y_ult"])
+    else:
+        r["pern"] = r["pernH"] = r["pernT"] = r["pernY"] = None
     rt = renta.get(r["id"])
     r["renta"] = int(_f(rt["renta_persona"])) if rt and _f(rt["renta_persona"]) else None  # € netos por persona
     r["rentaH"] = int(_f(rt["renta_hogar"])) if rt and _f(rt["renta_hogar"]) else None    # € netos por hogar
@@ -277,22 +317,60 @@ q_crim, q_ocup, q_renta, q_pob = pct_rank(_sc), pct_rank(_pr), pct_rank(_rn), pc
 _vc = sorted(r["vac"] for r in _big if r["vac"] is not None)
 _cd = sorted(r["crimD"] for r in rows if r["crimD"] is not None)
 q_vac, q_crimD = pct_rank(_vc), pct_rank(_cd)
-# Riesgo de okupación ESTIMADO por municipio (0 = bajo, 100 = alto). Interior solo publica las denuncias por provincia, así que se combina
-# ese dato con factores municipales que la favorecen: vivienda vacía (Censo 2021), pobreza y, donde existe, robos en domicilios.
-OW = {"prov": 0.45, "vac": 0.30, "pob": 0.15, "dom": 0.10}
+# Riesgo de okupación ESTIMADO por municipio (0 = bajo, 100 = alto). No hay ningún dato público por municipio ni por partido judicial, así que:
+# 1) Tasa provincial: media de dos fuentes, cada una comparada con su media nacional: denuncias de allanamiento y usurpación (Interior) y
+#    juicios por ocupación ilegal de viviendas (CGPJ, el dato específico de okupación).
+# 2) Reparto dentro de la provincia: la okupación se concentra en ciudades grandes y en municipios con más vivienda vacía y más pobreza, así
+#    que cada municipio recibe un multiplicador por tamaño ((hab./10.000)^0,25), vivienda vacía y pobreza (percentiles; la vivienda vacía pesa la
+#    mitad donde hay mucha vivienda turística, porque el Censo cuenta como vacías las de uso estacional). Los multiplicadores se normalizan para
+#    que la media de la provincia (ponderada por población) siga siendo su tasa.
+# 3) Escala absoluta: un municipio en la media nacional da 40; el doble, 63; el triple, 78. Donde hay dato, robos en domicilios ajustan ±4.
+cgpj = {r["prov"]: int(r["juicios"]) for r in csv.DictReader(open(ROOT / "data/raw/ocupacion_judicial_prov.csv"))}
+_nat_ocup = sum(_f(u["y2025"]) or 0 for u in usu.values()) / sum(_pp.values()) * 10000
+_nat_cgpj = sum(cgpj.values()) / sum(v for k, v in _pp.items() if k in cgpj) * 10000
+_prov_ratio = {}
+for pc, ptot in _pp.items():
+    parts_r = []
+    u = usu.get(pc)
+    if u and _f(u["y2025"]) is not None:
+        parts_r.append(_f(u["y2025"]) / ptot * 10000 / _nat_ocup)
+    if pc in cgpj:
+        parts_r.append(cgpj[pc] / ptot * 10000 / _nat_cgpj)
+    if parts_r:
+        _prov_ratio[pc] = sum(parts_r) / len(parts_r)
+
+
+def _mult(r):
+    m = (max(r["pop"], 500) / 10000) ** 0.25
+    if r["vac"] is not None:
+        m *= 1 + (q_vac(r["vac"]) - 50) / 100 * (0.3 if (r["tur"] or 0) >= 5 else 0.6)
+    if r["pob"] is not None:
+        m *= 1 + (q_pob(r["pob"]) - 50) / 100 * 0.6
+    return m
+
+
+_msum, _psum = {}, {}
+for r in rows:
+    if r["p"] in _prov_ratio:
+        r["_m"] = _mult(r)
+        _msum[r["p"]] = _msum.get(r["p"], 0) + r["_m"] * r["pop"]
+        _psum[r["p"]] = _psum.get(r["p"], 0) + r["pop"]
+for r in rows:
+    if "_m" in r:
+        ratio = _prov_ratio[r["p"]] * r["_m"] / (_msum[r["p"]] / _psum[r["p"]])
+        v = 100 * (1 - math.exp(-0.5 * ratio))
+        if r["crimD"] is not None:
+            v += (q_crimD(r["crimD"]) - 50) / 50 * 4
+        r["okR"] = round(min(100, max(0, v)))
+        r["okX"] = round(ratio, 2)                   # veces la media nacional (estimado)
+        r["okP"] = round(_prov_ratio[r["p"]], 2)     # la provincia, veces la media nacional
+        del r["_m"]
+    else:
+        r["okR"] = r["okX"] = r["okP"] = None
+    pj = cgpj.get(r["p"])
+    r["okJ"] = round(pj / _pp[r["p"]] * 10000, 2) if pj is not None and _pp.get(r["p"]) else None  # juicios por ocupación por 10.000 hab. (provincia)
 ZW = {"seg": 0.35, "okr": 0.30, "renta": 0.20, "pob": 0.15}
 for r in rows:
-    op = {}
-    if r["ocup"] is not None:
-        op["prov"] = q_ocup(r["ocup"])
-    if r["vac"] is not None:
-        op["vac"] = q_vac(r["vac"])
-    if r["pob"] is not None:
-        op["pob"] = q_pob(r["pob"])
-    if r["crimD"] is not None:
-        op["dom"] = q_crimD(r["crimD"])
-    # hace falta el dato provincial y al menos uno municipal; si no, no se estima
-    r["okR"] = round(sum(OW[k] * v for k, v in op.items()) / sum(OW[k] for k in op)) if ("prov" in op and len(op) >= 2) else None
     zp = {}
     if r["crim"] is not None:
         zp["seg"] = 100 - q_crim(r["crim"])        # más seguro = más puntos
@@ -306,7 +384,13 @@ for r in rows:
     # Solo se valora la zona si hay SEGURIDAD MUNICIPAL (Interior: capitales y municipios >20.000 hab.) además de renta o pobreza.
     # Sin ese dato prefiero no dar veredicto antes que dar un falso positivo ("buena zona") sin evidencia suficiente.
     r["zona"] = round(sum(ZW[k] * v for k, v in zp.items()) / sum(ZW[k] for k in zp), 1) if ("seg" in zp and ("renta" in zp or "pob" in zp)) else None
-ZREF = {"vac": _med(_vc), "crim": _med(_sc), "ocup": round(sum(_f(u["y2025"]) or 0 for u in usu.values()) / sum(_pp.values()) * 10000, 1), "renta": _med(_rn), "pob": _med(_pb)}
+    # Una zona no puede ser "buena" con riesgo de okupación medio, ni "media" con riesgo medio-alto o alto
+    if r["zona"] is not None and r["okR"] is not None:
+        if r["okR"] >= 60:
+            r["zona"] = min(r["zona"], 39.9)
+        elif r["okR"] >= 40:
+            r["zona"] = min(r["zona"], 59.9)
+ZREF = {"cgpj": round(_nat_cgpj, 2), "vac": _med(_vc), "crim": _med(_sc), "ocup": round(sum(_f(u["y2025"]) or 0 for u in usu.values()) / sum(_pp.values()) * 10000, 1), "renta": _med(_rn), "pob": _med(_pb)}
 
 # Planeamiento (SIU, Ministerio de Vivienda): viviendas y suelo de actividad económica previstos y pendientes en áreas de desarrollo.
 # OJO: son planes sobre el papel (muchos antiguos, del boom), no obra garantizada. Cobertura: 5.898 municipios (CCAA aportan los datos).
@@ -403,8 +487,21 @@ for r in rows:
 
 out = ROOT / "public/municipios.json"
 out.parent.mkdir(exist_ok=True)
+# Valor tasado por provincia (referencia en la gráfica de los municipios sin dato propio)
+_vtprov = {}
+for _t in csv.DictReader(open(ROOT / "data/raw/tasado_prov_serie.csv")):
+    _vtprov.setdefault(_t["prov"], []).append([int(_t["anyo"]), int(_t["eur_m2"])])
+
+# Serie de población 2015-2025 (para las curvas de la app): "ps" = habitantes por año, "psY" = primer año
+_serie = {r["ine"]: r for r in csv.DictReader(open(ROOT / "data/raw/pob_serie.csv"))}
+_sy = sorted(int(k[1:]) for k in next(iter(_serie.values())) if k.startswith("y"))
+for r in rows:
+    sr = _serie.get(r["id"])
+    vals = [int(sr[f"y{y}"]) if sr and sr[f"y{y}"] != "" else None for y in _sy]
+    r["ps"] = vals if all(v is not None for v in vals) else None
+
 with open(out, "w", encoding="utf-8") as f:
-    json.dump({"years": [y0, y1], "negHist": HIST, "proyYears": PROY_Y, "zref": ZREF, "rows": rows}, f, ensure_ascii=False, separators=(",", ":"))
+    json.dump({"years": [y0, y1], "psY": _sy[0], "vtProv": _vtprov, "negHist": HIST, "proyYears": PROY_Y, "zref": ZREF, "rows": rows}, f, ensure_ascii=False, separators=(",", ":"))
 print(len(rows), "municipios ->", out, f"{out.stat().st_size/1e6:.2f} MB")
 top = sorted([r for r in rows if r["score"] is not None], key=lambda r: -r["score"])[:10]
 for r in top: print(r["score"], r["n"], r["prov"], r["pop"], r["g5"])

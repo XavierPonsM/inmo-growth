@@ -1,24 +1,23 @@
 @import "tailwindcss";
 
 /*
- * Estética: grises fríos, cabecera azul noche, verde azulado como color principal y menta de acento.
- * Verde azulado = bueno, ámbar = aviso, rojo = alerta. Todo en sans (fuente del sistema).
+ * Estética tomada del plan de negocio (business-plan.docx): papel cálido, verde bosque como color principal,
+ * dorado para destacar, tinta casi negra y gris cálido; todo en sans (fuente del sistema), sin serif.
  */
 :root {
-  --paper: #f4f6f9; /* fondo */
-  --line: #e6e9ef; /* divisores y bordes suaves */
-  --edge: #cdd3dc; /* bordes de controles y tarjetas */
-  --tint: #e3f4f0; /* verde muy pálido: filas destacadas, hover */
-  --forest: #0f766e; /* color principal */
-  --forest-dark: #115e59;
-  --gold: #e5a50a; /* acento */
-  --gold-soft: #fff6dd; /* cajas destacadas */
-  --charcoal: #0f172a; /* fondo de la cabecera */
-  --ink: #0f172a; /* texto */
-  --muted: #586174; /* texto secundario */
-  --brick: #cf3a2c; /* avisos y puntos débiles (rojo apagado, acorde a la paleta) */
-  --brick-soft: #fdecea;
-  --accent: #5eead4; /* menta: marca y controles activos sobre la cabecera oscura */
+  --paper: #f7f4ee; /* fondo */
+  --line: #e8e3d9; /* divisores y bordes suaves */
+  --edge: #d8d1c2; /* bordes de controles y tarjetas */
+  --tint: #e5efe8; /* verde muy pálido: filas destacadas, hover */
+  --forest: #2f6a4a; /* color principal */
+  --forest-dark: #235037;
+  --gold: #d4ac0d; /* acento */
+  --gold-soft: #fef9e7; /* cajas destacadas */
+  --charcoal: #2b2926; /* fondo de la cabecera */
+  --ink: #1c1a17; /* texto */
+  --muted: #5c574e; /* texto secundario */
+  --brick: #b53a2a; /* avisos y puntos débiles (rojo apagado, acorde a la paleta) */
+  --brick-soft: #fbece9;
 }
 
 @theme inline {
@@ -35,7 +34,6 @@
   --color-muted: var(--muted);
   --color-brick: var(--brick);
   --color-brick-soft: var(--brick-soft);
-  --color-accent: var(--accent);
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Calibri, sans-serif;
 }
 

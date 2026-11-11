@@ -1,8 +1,12 @@
 ine,wd,osm,names,dkm
+01008,0,1,,3.1
 01059,3,3,Universidad EUNEIZ; Universidad Libre de Vitoria; Universidad de Vitoria,0.7
 02003,1,25,Universidad Laboral de Albacete,1.6
-03009,0,2,,0.5
-03014,0,2,,0.5
+03009,0,2,Seu Universitaria a Alcoi de la Universitat d'Alacant,0.5
+03014,0,2,Seu Universitària Ciutat d'Alacant,0.5
+03018,0,1,Facultad de Bellas Artes,0.7
+03031,0,1,,2.2
+03063,0,1,,0.8
 03065,1,4,Universidad Miguel Hernández,0.2
 03099,1,1,Universidad de Orihuela,0.2
 03119,0,4,,1.3
@@ -10,137 +14,230 @@ ine,wd,osm,names,dkm
 04013,1,2,Universidad de Almería,0.4
 05019,1,5,Universidad Católica de Ávila,1.0
 06015,1,6,Universidad de Extremadura,1.1
-06083,0,3,,1.1
+06035,0,1,Universidad Popular de Castilblanco,2.8
+06050,0,1,Universidad Popular,0.5
+06083,0,3,Centro Universitario de Mérida,1.1
+06149,0,1,Universidad Popular Villafranca de los Barros,0.4
+07002,0,1,Universitat de les Illes Balears,0.0
+07020,0,1,Universitat de les Illes Balears,6.2
+07026,0,1,Universitat de les Illes Balears,0.3
+07032,0,1,Universidad Nacional de Educación a Distancia,0.2
+07033,0,1,,0.6
 07040,2,3,Universidad Luliana; Universidad de las Islas Baleares,0.2
-08019,7,44,Universidad Abierta de Cataluña; Universidad CEU Abat Oliba; Universidad Internacional de Cataluña,0.4
+08019,7,44,Universidad Abierta de Cataluña; Universidad CEU Abat Oliba; Universidad Internacional de Cataluña; Universidad Pompeu Fabra; Universidad Ramon Llull; Universidad de Barcelona; Universidad de Navarra,0.4
+08046,0,1,,2.3
 08056,0,3,,0.9
 08077,1,39,Universidad Politécnica de Cataluña,2.4
-08113,0,3,,1.2
+08080,0,1,,2.4
+08102,0,1,,0.4
+08113,0,3,Campus UManresa,1.2
+08120,0,1,,0.9
 08121,0,3,,1.4
+08184,0,1,,2.3
 08187,0,2,,1.0
 08194,0,2,,1.8
+08200,0,1,,1.2
 08205,0,4,,0.9
-08245,0,4,,0.9
+08235,0,1,,0.3
+08238,0,1,,3.5
+08245,0,4,Campus Mundet,0.9
 08266,1,0,Universidad Autónoma de Barcelona,2.8
 08279,0,6,,1.2
 08298,1,5,Universidad de Vic,0.7
-08307,0,5,,0.3
-08904,0,6,,0.7
+08301,0,1,,3.7
+08307,0,5,Universitat Oberta de Catalunya (UOC). Seu de Vilanova; Centre Tecnològic de Vilanova i la Geltrú,0.3
+08904,0,6,Universitat Autònoma de Barcelona; Centre de visio per computador,0.7
 09059,2,14,Universidad Isabel I; Universidad de Burgos,0.4
-10037,0,5,,1.5
-10148,0,2,,0.6
-11004,0,4,,1.1
+10037,0,5,Universidad de Extremadura; Campus Cáceres Universidad de Extremadura; Facultad Filosofía y Letras,1.5
+10067,0,1,Centro UNED Coria,1.0
+10105,0,1,,0.6
+10131,0,1,Universidad Nacional de Educación a Distancia,0.3
+10148,0,2,Universidad a Distancia UNED Plasencia; Facultad de Podología y Enfermería,0.6
+11004,0,4,Centro Uned Algeciras; Escuela de Artes y Oficios; Facultad de Ciencias del Trabajo; Facultad de Enfermería,1.1
 11012,1,16,Universidad de Cádiz,0.1
-11020,0,2,,1.8
-11022,0,2,,0.2
-11028,0,2,,1.2
-11033,0,3,,0.0
+11020,0,2,Campus de Jerez - UCA,1.8
+11022,0,2,Universidad Internacional Menéndez Pelayo,0.2
+11024,0,1,,0.4
+11028,0,2,Campus Universitario Río San Pedro; Escuela Superior de Ingeniería,1.2
+11033,0,3,Universidad Popular de San Roque; Sede de la Universidad Popular de San Roque,0.0
 12040,1,1,Universitat Jaume I,2.8
-13011,0,2,,1.6
+12135,0,1,Centro Asociado UNED Vila-real,0.4
+13011,0,2,Escuela de Ingeniería Minera e Industrial de Almadén,1.6
 13013,1,0,Universidad de Almagro,0.4
 13034,1,19,Universidad de Castilla-La Mancha,0.5
-14021,4,15,Universidad Laboral de Córdoba; Universidad Libre de Córdoba; Universidad Loyola,0.3
+13087,0,1,Universidad Nacional de Educación a Distancia,1.2
+14009,0,1,Escuela técnica de minas,0.6
+14021,4,15,Universidad Laboral de Córdoba; Universidad Libre de Córdoba; Universidad Loyola; Universidad de Córdoba,0.3
 15030,2,9,Universidad Intercontinental de la Empresa; Universidad de La Coruña,0.5
 15036,1,3,Universidad de La Coruña,0.1
-15058,0,3,,1.9
+15051,0,1,,2.1
+15058,0,3,Centro de Extensión Universitaria e Divulgación Ambiental de Galicia,1.9
 15078,1,27,Universidad de Santiago de Compostela,0.8
-16078,0,7,,0.6
+16078,0,7,Universidad de Castilla-La Mancha - Campus de Cuenca; Universidad de Castilla La Mancha - Campus de Cuenca; Centro Asociado de la UNED,0.6
 17079,1,5,Universidad de Gerona,0.9
 17155,0,2,,0.7
+18021,0,1,Campus de la Salud,2.0
 18087,2,17,Universidad Loyola; Universidad de Granada,0.2
-19130,0,5,,0.5
+18127,0,1,Campus Aynadamar; Escuela Técnica Superior de Ingenierías Informática y de Telecomunicación,1.3
+18140,0,1,Universidad Nacional de Educación a Distancia de Motril,0.4
+19130,0,5,Facultad de Educación UAH,0.5
 19257,1,0,Universidad de San Antonio de Porta Coeli,0.6
 20030,0,2,,0.5
+20032,0,1,,0.6
+20040,0,1,,2.6
 20045,0,2,,0.9
 20055,1,2,Universidad de Mondragón,0.7
+20059,0,1,,0.6
 20069,1,21,"Universidad del Pais Vasco, San Sebastian",1.1
+20074,0,1,,0.0
+20076,0,1,,0.9
+20903,0,1,,2.0
 21041,1,19,Universidad de Huelva,0.0
-21055,0,2,,3.3
-22048,0,3,,0.2
-22112,0,3,,0.3
-22125,0,4,,0.4
+21042,0,1,Escuela de carnaval,0.4
+21055,0,2,Campus La Rábida - Universidad de Huelva,3.3
+22048,0,3,Universidad Nacional de Educación a Distancia,0.2
+22112,0,3,Universidad Nacional de Educación a Distancia,0.3
+22125,0,4,Campus de Huesca; Facultad de Ciencias de la Salud y del Deporte,0.4
+22130,0,1,Universidad de Zaragoza,2.1
+22199,0,1,Universidad Nacional de Educación a Distancia Sabiñanigo,1.5
 23009,1,1,Universidad de Baeza,0.9
+23047,0,1,Centro de Capacitación Forestal Vadillo Castril,5.6
 23050,1,2,Universidad de Jaén,2.1
-23055,0,4,,0.9
+23055,0,4,Campus Científico Tecnológico,0.9
+23092,0,1,,0.1
 24089,1,19,Universidad de León,0.3
-24115,0,3,,0.9
+24115,0,3,Campus de Ponferrada,0.9
+24196,0,1,,0.3
+25007,0,1,,3.5
 25072,1,0,Universidad de Cervera,0.6
 25120,1,5,Universidad de Lérida,1.2
 26089,2,8,Universidad Internacional de La Rioja; Universidad de La Rioja,0.9
-27028,0,5,,0.7
+27028,0,5,Campus Terra,0.7
+27066,0,1,Centro Asociado da UNED de Viveiro,1.7
 28005,3,25,Universidad Complutense; Universidad Laboral de Alcalá de Henares; Universidad de Alcalá,0.1
-28006,0,4,,1.1
-28013,0,4,,0.5
-28022,0,9,,3.0
+28006,0,4,Universidad Europea de Madrid (Campus de Alcobendas); Universidad Pontificia de Comillas; Campus BBVA; Escuela Politécnica Superior,1.1
+28007,0,1,Universidad Rey Juan Carlos de Madrid,1.5
+28013,0,4,Centro de Estudios Superiores Felipe II,0.5
+28022,0,9,Universidad CEU San Pablo; Campus Montegancedo; Escuela Técnica Superior de Ingenieros Informáticos UPM,3.0
+28038,0,1,Escuela de Ingenieros de Montes Universidad Politécnica de Madrid,3.2
+28044,0,1,Universidad Carlos III Colmenarejo,1.7
 28047,1,1,Universidad a Distancia de Madrid,1.6
-28065,0,2,,1.8
-28074,0,2,,0.5
-28079,20,36,Universidad Alfonso X el Sabio; Universidad Americana de Europa; Universidad Autónoma de Madrid,0.6
-28092,0,3,,0.9
+28058,0,1,Universidad Rey Juan Carlos - Campus de Fuenlabrada,1.6
+28065,0,2,Universidad Carlos III de Madrid,1.8
+28074,0,2,Universidad Carlos III de Madrid,0.5
+28079,20,36,Universidad Alfonso X el Sabio; Universidad Americana de Europa; Universidad Autónoma de Madrid; Universidad CEU San Pablo; Universidad Camilo José Cela; Universidad Carlos III de Madrid; Universidad Complutense de Madrid; Universidad Eclesiástica San Dámaso,0.6
+28080,0,1,Campus Monte del Pilar Mapfre,3.2
+28092,0,3,Universidad Rey Juan Carlos,0.9
 28115,1,6,Universidad Francisco de Vitoria,0.5
 28127,0,3,,4.2
-28131,0,2,,0.8
-28152,0,2,,3.2
+28131,0,2,Universidad María Cristina,0.8
+28134,0,1,,1.1
+28148,0,1,Campus de Torrejón de la Universidad de Alcalá,3.7
+28152,0,2,Universidad Antonio de Nebrija - Campus de La Berzosa,3.2
 28176,2,1,Universidad Alfonso X el Sabio; Universidad Camilo José Cela,0.0
-28177,0,2,,2.7
+28177,0,2,Universidad Camilo José Cela; Facultad de Ciencias - UNED,2.7
 28181,1,3,Universidad Europea de Madrid,2.0
-28504,0,3,,1.6
-28505,0,2,,0.9
-28508,0,11,,0.4
-28509,0,16,,1.5
-28514,0,5,,1.1
-29067,4,2,Universidad Europea de Andalucía; Universidad Tecnológica Atlántico-Mediterráneo; Universidad de Málaga,0.4
-30005,0,15,,2.9
+28501,0,1,Campus IESE Business School,2.1
+28504,0,3,Universidad Nebrija - Facultad de Lenguas y Educación; Escuela de Periodismo UAM-El País,1.6
+28505,0,2,Facultad de Óptica y Optometría,0.9
+28506,0,1,Centro de Zona Jacinto Verdaguer,3.0
+28507,0,1,Centro Universitario de la Defensa,1.0
+28508,0,11,Universidad Camilo José Cela; Campus Arrupe; Campus Ciencias de la Salud; Campus de la Dehesa de la Villa de la Universidad Pablo de Nebrija; Centro Universitario de Ciencias de la Salud San Rafael Nebrija; Facultad de Medicina de la Universidad Autónoma de Madrid,0.4
+28509,0,16,Universidad Autónoma de Madrid (U.A.M.) Campus de Cantoblanco; Universidad Villanueva (Edificio A); Universidad Villanueva (Edificio B); Centro Universitario Villanueva; Centro de Enseñanza Superior Villanueva; Escuela Universitaria de Fisioterapia de la ONCE; Facultad de Ciencias; Facultad de Ciencias Económicas y Empresariales,1.5
+28514,0,5,Universidad Rey Juan Carlos (Campus de Vicálvaro); Campus Sur de la Universidad Politécnica de Madrid; Centro Superior de Diseño de Moda; Escuela Superior de Diseño,1.1
+28903,0,1,,2.1
+29008,0,1,Campus Universitario Europeo,2.1
+29067,4,2,Universidad Europea de Andalucía; Universidad Tecnológica Atlántico-Mediterráneo; Universidad de Málaga; universidad laboral,0.4
+29084,0,1,Centro Universitario de Enfermería Virgen de la Paz,1.4
+30005,0,15,Campus Ciencias de la Salud; Facultad de Medicina UCAM,2.9
+30010,0,1,Escuela Politécnica Superior de Orihuela - Universidad Miguel Hernández,2.9
 30016,1,24,Universidad Politécnica de Cartagena,0.3
-30024,0,5,,1.2
-30027,0,26,,4.7
+30024,0,5,Campus de Lorca; Centro Integrado de Formación Profesional,1.2
+30027,0,26,Campus de Espinardo; Centro Social Universitario; Centro de Visión Integral Avanzada; Facultad de Bellas Artes; Facultad de Informática; Facultad de Psicología; Facultad de Química,4.7
 30030,2,14,Universidad Católica San Antonio de Murcia; Universidad de Murcia,0.3
-30035,0,2,,2.5
+30035,0,2,Campus Universitario de San Javier; Centro Universitario de la Defensa,2.5
+30037,0,1,,6.3
 31019,1,0,Universidad para Mayores Francisco Ynduráin,1.4
 31041,1,0,Universidad Real de Irache,0.8
 31201,2,3,Universidad Pública de Navarra; Universidad de Navarra,1.8
-31232,0,2,,0.3
+31232,0,2,Universidad Pública de Navarra - Campus de Tudela,0.3
+31901,0,1,Universidad Pública de Navarra - Facultad de Ciencias de la Salud,1.0
 32054,1,5,Universidad de Vigo,1.1
+33004,0,1,Centro de Servicios Universitarios de Avilés,0.1
 33024,1,10,Universidad Laboral de Gijón,3.5
+33037,0,1,,0.7
 33044,1,24,Universidad de Oviedo,0.3
-34120,0,4,,1.0
-35016,4,8,Universidad Politécnica de Canarias; Universidad de Las Palmas de Gran Canaria; Universidad de las Hespérides,1.8
-35021,0,2,,6.2
+34004,0,1,Universidad Nacional de Educación a Distancia,1.0
+34120,0,4,Universidad Popular de Palencia; Campus de la Yutera; Escuela Universitaria de Enfermería,1.0
+35016,4,8,Universidad Politécnica de Canarias; Universidad de Las Palmas de Gran Canaria; Universidad de las Hespérides; Universidad del Atlántico Medio,1.8
+35021,0,2,Universidad del Atlántico Medio (UNAM),6.2
+35024,0,1,Escuela Universitaria de Turismo de Lanzarote (EUTL),5.6
+36035,0,1,,6.7
 36038,1,6,Universidad de Vigo,0.2
-36039,0,12,,4.8
+36039,0,12,Campus Universitario das Lagoas-Marcosende; Centro de Apoio Científico e Tecnolóxico á Investigación (CACTI),4.8
 36057,2,5,Universidad Intercontinental de la Empresa; Universidad de Vigo,1.1
+37046,0,1,Escuela Técnica Superior de Ingeniería Industrial,0.1
+37107,0,1,,0.3
+37117,0,1,Centro Hispano-Luso de Investigaciones Agrarias,3.3
 37274,2,24,Universidad Pontificia de Salamanca; Universidad de Salamanca,0.3
+37354,0,1,,3.3
+38001,0,1,Universidad de La Laguna. Campus Adeje.,1.1
+38016,0,1,,6.1
 38023,2,51,Universidad Literaria de San Fernando; Universidad de La Laguna,0.2
 38026,1,1,Universidad Europea de Canarias,2.8
-38038,0,13,,1.0
+38036,0,1,Universidad Nacional de Educación a Distancia,0.1
+38037,0,1,,1.5
+38038,0,13,Campus de Ofra; Campus de Santa Cruz; Escuela Universitaria de Enfermeria y Fisioterapia; Escuela Universitaria de Turismo; Escuela de Actores de Canarias; Escuela de Enfermería; Facultad de Bellas Artes,1.0
 39024,1,1,Universidad Pontificia Comillas,0.8
-39073,0,2,,2.4
+39073,0,2,Universidad Europea del Atlántico,2.4
 39075,3,9,Universidad Europea del Atlántico; Universidad Internacional Menéndez Pelayo; Universidad de Cantabria,0.6
-40194,0,3,,0.5
+39085,0,1,,2.2
+39087,0,1,Universidad de Cantabria - Campus de Torrelavega,1.5
+40194,0,3,Campus María Zambrano UVa,0.5
 41017,1,2,Universidad CEU Fernando III,1.3
+41021,0,1,,2.5
 41038,1,5,Universidad Loyola,0.8
+41039,0,1,,0.4
 41091,2,35,Universidad Pablo de Olavide; Universidad de Sevilla,0.4
 42043,1,0,Universidad de Santa Catalina,0.2
-42173,0,3,,0.4
-43123,0,3,,0.3
+42173,0,3,Campus Universitario Duques de Soria,0.4
+43047,0,1,Universitat Rovira i Virgili - Finca Mas dels Frares,1.6
+43123,0,3,Universitat Oberta de Catalunya; Universitat Rovira i Virgili - Campus Bellissens,0.3
 43148,2,3,Universidad Pontificia de Tarragona; Universidad Rovira i Virgili,0.6
-44216,0,3,,0.9
-45165,0,2,,0.4
-45168,0,6,,0.7
-46013,0,3,,2.3
-46017,0,2,,0.5
+43155,0,1,Universitat Rovira i Virgili Campus Tortosa,0.7
+43161,0,1,Campus Extens de la Universitat Rovira i Virgili (URV) a Valls,0.2
+43171,0,1,,1.0
+44024,0,1,Universidad de Zaragoza,1.3
+44216,0,3,Universidad Nacional de Educación a distancia; Campus de Teruel - Universidad de Zaragoza,0.9
+45165,0,2,Universidad Nacional de Educación a Distancia; Facultad de Ciencias Sociales de la Universidad de Castilla-La Mancha,0.4
+45168,0,6,Universidad de Castilla La Mancha - Campus de Toledo; Universidad del Cardenal Lorenzana; Escuela de Traductores,0.7
+46007,0,1,,0.8
+46013,0,3,Universitat de València - Campus dels Tarongers; Campus de Vera de la Universitat Politècnica de València,2.3
+46017,0,2,Universidad Católica de Valencia,0.5
 46025,1,3,Universidad CEU Cardenal Herrera,0.3
-46078,0,2,,0.8
+46078,0,2,Universidad Católica de Valencia - Sede Padre Jofre; Campus de Burjassot - Paterna,0.8
+46109,0,1,Universidad Laboral,3.6
+46113,0,1,,3.1
 46131,1,0,Universidad de Gandía,3.6
-46145,0,2,,0.3
-46184,0,2,,0.5
-46250,5,20,Universidad Católica de Valencia San Vicente Mártir; Universidad Europea de Valencia; Universidad Internacional de Valencia,0.3
+46135,0,1,Universitat Católica de València - Godella,0.4
+46145,0,2,Campus de la Costera UCV,0.3
+46152,0,1,Universitat Popular de València - Pinedo,3.5
+46184,0,2,Universidad Nacional de Educación A Distancia Uned; Universitat de València - Campus d'Ontinyent,0.5
+46250,5,20,Universidad Católica de Valencia San Vicente Mártir; Universidad Europea de Valencia; Universidad Internacional de Valencia; Universidad Politécnica de Valencia; Universidad de Valencia,0.3
+47052,0,1,Universidad Europea Miguel de Cervantes,3.0
 47186,2,15,Universidad Europea Miguel de Cervantes; Universidad de Valladolid,0.6
 48020,1,9,Universidad de Deusto,0.4
 48054,2,2,Universidad de Bilbao; Universidad del País Vasco,0.9
-49275,0,4,,1.1
-50025,0,2,,0.4
+48077,0,1,,0.7
+48078,0,1,,0.5
+48082,0,1,,0.8
+48905,0,1,,1.5
+49275,0,4,Campus Viriato,1.1
+50025,0,2,Escuela Universitaria Politécnica de La Almunia - Edificio II,0.4
 50067,0,2,,0.9
+50095,0,1,Universidad Nacional de Estudios a Distancia,0.2
+50251,0,1,,0.8
 50288,1,6,Universidad San Jorge,1.3
 50297,1,18,Universidad de Zaragoza,0.4
-52001,0,3,,0.5
+51001,0,1,Universidad de Granada UNED,0.5
+52001,0,3,Universidad Nacional de Educación a Distancia (UNED) - Centro de Melilla; Universidad de Granada Campus de Melilla; Escuela de Arte “Miguel Marmolejo”,0.5
