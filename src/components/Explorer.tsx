@@ -44,6 +44,9 @@ type Row = {
   alqK: number | null; // ritmo anual aplicado en la estimación (%)
   alqG: number | null; // % en 5 años
   alqS: [number, number][] | null; // [año, €/m² al mes]
+  op: number | null; // obra pública adjudicada en 12 meses, € por habitante (Plataforma de Contratación)
+  opN: number | null; // nº de obras
+  opT: [string, number, string, string][] | null; // las 3 mayores: [título, €, fecha, enlace]
   rb: number | null; // rentabilidad bruta orientativa (%): alquiler anual / valor tasado municipal
   uniNear: string | null; // universidad que más aporta (puede estar en otro municipio)
   uniKm: number | null; // km estimados por carretera hasta ella
@@ -614,6 +617,7 @@ function Compare({ rows, onClose, onOpen, onRemove }: { rows: Row[]; onClose: ()
     { label: "Vivienda vacía", get: (r) => r.vac, show: (v) => `${fmt1.format(v)}%`, best: "min" },
     { label: "Valor tasado", get: (r) => r.vt, show: (v) => `${fmt.format(v)} €/m²`, best: null },
     { label: "Alquiler mensual (estimado)", get: (r) => r.alqRE, show: (v) => `≈ ${fmt.format(v)} €`, best: null },
+    { label: "Obra pública (12 meses)", get: (r) => r.op, show: (v) => `${fmt.format(v)} €/hab.`, best: "max" },
     { label: "Rentabilidad bruta", get: (r) => r.rb, show: (v) => `${fmt1.format(v)}%`, best: "max" },
     { label: "Vivienda prevista por 1.000 hab.", get: (r) => r.pendK, show: (v) => fmt.format(v), best: null },
     { label: "Universidad", get: (r) => r.uniKm, show: (v) => `${fmt1.format(v)} km`, best: "min" },
@@ -1106,6 +1110,15 @@ function Ficha({
             />
           )}
           <Stat
+            label="Obra pública"
+            value={sel.op === null ? "—" : `${fmt.format(sel.op)} €/hab.`}
+            info={
+              sel.op === null
+                ? "Sin obras públicas adjudicadas que se puedan ubicar en este municipio en los últimos 12 meses."
+                : `${fmt.format(sel.opN ?? 0)} obras adjudicadas en los últimos 12 meses (Plataforma de Contratación del Sector Público). Solo cuenta las que se pueden ubicar en el municipio: autovías, tren y otras obras que solo indican la provincia no entran.`
+            }
+          />
+          <Stat
             label="Vivienda prevista"
             value={sel.pendK === null ? "—" : `${fmt.format(sel.pendK)} por mil hab.`}
             info={`Viviendas previstas en el planeamiento y aún sin construir, por 1.000 habitantes (SIU).${(sel.pendK ?? 0) >= 3000 ? " Son muchísimas para su tamaño: suele ser un plan antiguo o inviable." : ""}`}
@@ -1145,6 +1158,25 @@ function Ficha({
           </a>
         </div>
       </section>
+
+      {sel.opT && (
+        <section className="mt-8">
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold tracking-tight">Obra pública reciente</h2>
+            <Info>Las mayores obras públicas adjudicadas en los últimos 12 meses, con el importe sin IVA. Fuente: Plataforma de Contratación del Sector Público.</Info>
+          </div>
+          <ul>
+            {sel.opT.map(([t, eur, fecha, url]) => (
+              <li key={url + t} className="flex items-baseline gap-3 py-2.5 text-[15px]">
+                <a href={url} target="_blank" rel="noopener noreferrer" className="line-clamp-2 min-w-0 flex-1 text-ink hover:text-forest" title={`${t} (${fecha})`}>
+                  {t}
+                </a>
+                <span className="shrink-0 font-semibold tabular-nums text-ink">{eur >= 1e6 ? `${fmt1.format(eur / 1e6)} M€` : `${fmt.format(Math.round(eur / 1000))} mil €`}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {sel.proj && sel.proj.length > 0 && (
         <section className="mt-8">

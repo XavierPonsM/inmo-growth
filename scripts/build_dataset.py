@@ -145,6 +145,17 @@ for r in rows:
     # Rentabilidad bruta orientativa: alquiler anual estimado hoy / valor tasado (solo donde hay valor tasado municipal)
     r["rb"] = round(r["alqE"] * 12 / r["vt"] * 100, 1) if last and r["vt"] else None
 
+# Obra pública adjudicada en los últimos 12 meses (Plataforma de Contratación del Sector Público; scripts/process_contratos.py).
+# Solo las obras que se pueden ubicar en un municipio: las que solo indican provincia (autovías, AVE...) no entran. No forma parte del índice.
+_op = {r["ine"]: r for r in csv.DictReader(open(ROOT / "data/raw/obra_publica_mun.csv"))}
+_opt = json.load(open(ROOT / "data/raw/obra_publica_top.json", encoding="utf-8"))
+for r in rows:
+    o = _op.get(r["id"])
+    r["op"] = round(int(o["eur"]) / r["pop"]) if o and r["pop"] else None   # € por habitante
+    r["opN"] = int(o["n"]) if o else None                                    # nº de obras
+    # las 3 mayores: [título, €, fecha, enlace]; solo en municipios de 2.000 hab. o más, para no engordar el fichero que descarga la app
+    r["opT"] = ([[t[0][:110], t[1], t[2], t[3]] for t in _opt.get(r["id"], [])] or None) if r["pop"] >= 2000 else None
+
 # Futuro: proyección INE por provincia + suelo disponible y obra nueva (Catastro, 2021 vs 2026; no cubre País Vasco ni Navarra)
 proy = {r["prov"]: r for r in csv.DictReader(open(ROOT / "data/raw/proyeccion_prov.csv"))}
 cat = {r["ine"]: r for r in csv.DictReader(open(ROOT / "data/raw/catastro_futuro.csv"))}

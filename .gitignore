@@ -55,3 +55,6 @@ next-env.d.ts
 
 # libro original del alquiler (71 MB): se descarga con scripts/process_alquiler.py
 /data/raw/alquiler/
+
+# ficheros originales de contratación pública (cientos de MB): se descargan con scripts/process_contratos.py
+/data/raw/contratos/
