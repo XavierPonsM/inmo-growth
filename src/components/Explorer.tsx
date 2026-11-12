@@ -1785,7 +1785,7 @@ export default function Explorer() {
 
   return (
     <div className="min-h-dvh bg-white text-ink">
-      <header className={`sticky top-0 z-30 border-b ${view.k === "map" ? "border-transparent bg-white/70 backdrop-blur-md" : "border-line bg-white"}`}>
+      <header className={`fixed inset-x-0 top-0 z-30 border-b ${view.k === "map" ? "border-transparent bg-white/70 backdrop-blur-md" : "border-line bg-white"}`}>
         <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-2.5">
           <button onClick={home} className="shrink-0 text-xl font-bold leading-none tracking-tight text-ink hover:text-forest" title="Ir al inicio">
             Inmo Growth
@@ -1810,6 +1810,8 @@ export default function Explorer() {
           </button>
         </div>
       </header>
+      {/* la cabecera va fija (en Safari la posición "sticky" no se mantenía): este hueco reserva su altura */}
+      <div className="h-[57px]" aria-hidden="true" />
 
       {view.k === "map" ? (
         <div className="relative -mt-[57px]">
@@ -1819,6 +1821,18 @@ export default function Explorer() {
             onMouseLeave={() => setMapMenu(false)}
           >
             <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                onClick={() => {
+                  setStack([{ k: "home" }]); // vuelve a la lista conservando la selección actual
+                  window.scrollTo({ top: 0 });
+                }}
+                className="flex items-center gap-1.5 rounded-full bg-white py-1.5 pl-2.5 pr-3 text-[13px] font-medium text-ink shadow-[0_2px_8px_rgba(0,0,0,0.18)] hover:bg-paper"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M15 18l-6-6 6-6" />
+                </svg>
+                Lista
+              </button>
               <button
                 onClick={() => setMapMenu((x) => !x)}
                 aria-expanded={mapMenu}
