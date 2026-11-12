@@ -15,13 +15,42 @@ const VERSION = 3; // cambia al cambiar el formato del informe: invalida la cach
 type Informe = { v?: number; id: string; fecha: string; texto: string; fuentes: { url: string; titulo: string }[]; modelo: string; uso?: { entrada: number; salida: number; busquedas: number } };
 
 const MODEL = process.env.INFORME_MODEL ?? "claude-haiku-5-5";
-const CACHE_DIR = path.join(process.cwd(), ".cache", "informes");
+// En un alojamiento sin disco propio (Vercel y similares) solo se puede escribir en la carpeta temporal
+const CACHE_DIR = process.env.VERCEL ? path.join("/tmp", "informes") : path.join(process.cwd(), ".cache", "informes");
+
+// ---- Protección del gasto al publicar la app (los informes ya guardados en caché no cuentan ni se bloquean) ----
+// INFORME_OFF=1            desactiva la generación.
+// INFORME_CLAVE=...        exige esa clave (la app la pide una vez y la recuerda en el navegador).
+// INFORME_MAX_DIA=3        informes nuevos por visitante y día.  INFORME_MAX_TOTAL=40  informes nuevos al día entre todos.
+// Los contadores viven en memoria: en un alojamiento sin servidor se reinician a menudo, así que son un freno, no una garantía.
+// La garantía es el límite de gasto mensual de la consola de Anthropic.
+const MAX_DIA = Number(process.env.INFORME_MAX_DIA ?? 3);
+const MAX_TOTAL = Number(process.env.INFORME_MAX_TOTAL ?? 40);
+const usos = { dia: "", total: 0, porIp: new Map<string, number>() };
+function gastar(ip: string): string | null {
+  const hoy = new Date().toISOString().slice(0, 10);
+  if (usos.dia !== hoy) {
+    usos.dia = hoy;
+    usos.total = 0;
+    usos.porIp.clear();
+  }
+  if (usos.total >= MAX_TOTAL) return "Se ha alcanzado el máximo de informes de hoy. Vuelve mañana.";
+  const n = usos.porIp.get(ip) ?? 0;
+  if (n >= MAX_DIA) return `Has generado ${MAX_DIA} informes hoy, que es el máximo. Vuelve mañana.`;
+  usos.total++;
+  usos.porIp.set(ip, n + 1);
+  return null;
+}
 const TTL_MS = 30 * 24 * 3600 * 1000;
 let munis: Map<string, Muni> | null = null;
 
-async function loadMunis() {
+async function loadMunis(origin: string) {
   if (!munis) {
-    const raw = JSON.parse(await fs.readFile(path.join(process.cwd(), "public", "municipios.json"), "utf-8"));
+    // en un despliegue sin servidor la carpeta public puede no estar en el disco de la función: entonces se pide por HTTP
+    const raw = await fs
+      .readFile(path.join(process.cwd(), "public", "municipios.json"), "utf-8")
+      .then((t) => JSON.parse(t))
+      .catch(async () => (await fetch(`${origin}/municipios.json`)).json());
     munis = new Map((raw.rows as Muni[]).map((r) => [r.id, r]));
   }
   return munis;
@@ -46,7 +75,7 @@ Tienes pocas búsquedas: empieza por los precios de venta y alquiler.`;
 
 export async function POST(req: Request) {
   const { id } = (await req.json().catch(() => ({}))) as { id?: string };
-  const m = id ? (await loadMunis()).get(id) : undefined;
+  const m = id ? (await loadMunis(new URL(req.url).origin)).get(id) : undefined;
   if (!m) return Response.json({ error: "Municipio desconocido" }, { status: 400 });
   if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
     return Response.json({ error: "Falta ANTHROPIC_API_KEY en .env.local (reinicia el servidor después de añadirla)." }, { status: 503 });
@@ -59,6 +88,16 @@ export async function POST(req: Request) {
   } catch {
     // sin caché: se genera
   }
+
+  if (process.env.INFORME_OFF === "1") return Response.json({ error: "Los informes con IA están desactivados en esta versión." }, { status: 403 });
+  const clave = process.env.INFORME_CLAVE;
+  if (clave && req.headers.get("x-informe-clave") !== clave) {
+    return Response.json({ error: "Este informe necesita una clave de acceso.", clave: true }, { status: 401 });
+  }
+  const ip = (req.headers.get("x-forwarded-for") ?? "local").split(",")[0].trim();
+  const tope = process.env.NODE_ENV === "production" ? gastar(ip) : null; // en tu ordenador, sin límite
+  if (tope) return Response.json({ error: tope }, { status: 429 });
+
 
   const datos = [
     `Municipio: ${m.n} (${m.prov}), ${m.pop} habitantes.`,
@@ -148,7 +187,7 @@ export async function POST(req: Request) {
     return Response.json(informe);
   } catch (e) {
     console.error("[informe]", m.id, e instanceof Error ? `${e.name}: ${e.message}` : e);
-    if (e instanceof Anthropic.AuthenticationError) return Response.json({ error: "La clave de la API no es válida." }, { status: 401 });
+    if (e instanceof Anthropic.AuthenticationError) return Response.json({ error: "La clave de la API no es válida." }, { status: 502 });
     if (e instanceof Anthropic.RateLimitError) return Response.json({ error: "Límite de peticiones alcanzado; espera un minuto." }, { status: 429 });
     if (e instanceof Anthropic.APIError && /credit balance/i.test(e.message)) {
       return Response.json({ error: "La cuenta de la API de Anthropic no tiene saldo: añade crédito en Plans & Billing de la consola." }, { status: 402 });

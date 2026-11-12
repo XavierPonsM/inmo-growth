@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -35,6 +36,15 @@ type Row = {
   uniD: number | null; // km del centro del municipio a su propio campus
   ps: number[] | null; // habitantes por año desde psY
   vtS: [number, number][] | null; // [año, €/m² tasado]
+  alq: number | null; // alquiler: mediana €/m² al mes (Ministerio de Vivienda)
+  alqR: number | null; // renta mensual mediana (€)
+  alqY: number | null; // año del dato
+  alqE: number | null; // €/m² al mes estimado hoy (el dato oficial llevado al año actual)
+  alqRE: number | null; // renta mensual estimada hoy
+  alqK: number | null; // ritmo anual aplicado en la estimación (%)
+  alqG: number | null; // % en 5 años
+  alqS: [number, number][] | null; // [año, €/m² al mes]
+  rb: number | null; // rentabilidad bruta orientativa (%): alquiler anual / valor tasado municipal
   uniNear: string | null; // universidad que más aporta (puede estar en otro municipio)
   uniKm: number | null; // km estimados por carretera hasta ella
   uniAt: string | null; // municipio donde está, si no es el propio
@@ -55,6 +65,7 @@ type Row = {
   sUni: number | null; // 0-100 tamaño universitario
   sSuelo: number | null; // percentil de revalorización del suelo
   vt: number | null; // valor tasado vivienda libre €/m² (solo >25.000 hab.)
+  vtE?: number | null; // precio para filtrar: el municipal o, si no existe, la media de su provincia (se calcula al cargar)
   vtG: number | null; // variación % en 5 años
   vtN: number | null; // tasaciones en los últimos 4 trimestres
   sVt: number | null; // percentil de revalorización de la vivienda
@@ -126,7 +137,7 @@ const okDot = (v: number | null) => (v === null ? "var(--edge)" : v < 40 ? "var(
 // Veredicto orientativo para un inversor: cruza crecimiento, zona y riesgo de okupación. Reglas fijas, no asesoramiento.
 type Rec = { lvl: 0 | 1 | 2 | 3; label: string; color: string; good: string[]; warn: string[]; bad: string[] };
 const REC_LABEL = ["Descartar", "Con cautela", "A estudiar", "Buena candidata"] as const;
-const REC_COLOR = ["var(--brick)", "var(--gold)", "#5a9a72", "var(--forest)"] as const;
+const REC_COLOR = ["var(--brick)", "var(--gold)", "#5fb38f", "var(--forest)"] as const;
 function recommend(r: Row): Rec | null {
   if (r.score === null) return null;
   const good: string[] = [], warn: string[] = [], bad: string[] = [];
@@ -348,16 +359,70 @@ function buildFactors(s: Row, d: Data | null, hist: boolean): Factor[] {
   ];
 }
 
+// Botón de información: el texto explicativo solo aparece al pasar el cursor o al tocarlo
+function Info({ children }: { children: ReactNode }) {
+  const [pos, setPos] = useState<{ x: number; w: number; top?: number; bottom?: number } | null>(null);
+  const btn = useRef<HTMLButtonElement>(null);
+  const show = () => {
+    const b = btn.current?.getBoundingClientRect();
+    if (!b) return;
+    const w = Math.min(280, window.innerWidth - 24);
+    const x = Math.min(Math.max(12, b.left + b.width / 2 - w / 2), window.innerWidth - w - 12);
+    setPos(b.bottom + 180 > window.innerHeight ? { x, w, bottom: window.innerHeight - b.top + 6 } : { x, w, top: b.bottom + 6 });
+  };
+  useEffect(() => {
+    if (!pos) return;
+    const off = (e: Event) => {
+      if (e.type === "pointerdown" && btn.current?.contains(e.target as Node)) return;
+      setPos(null);
+    };
+    document.addEventListener("pointerdown", off);
+    window.addEventListener("scroll", off, true);
+    return () => {
+      document.removeEventListener("pointerdown", off);
+      window.removeEventListener("scroll", off, true);
+    };
+  }, [pos]);
+  return (
+    <>
+      <button
+        ref={btn}
+        type="button"
+        aria-label="Más información"
+        aria-expanded={pos !== null}
+        onPointerEnter={(e) => e.pointerType === "mouse" && show()}
+        onPointerLeave={(e) => e.pointerType === "mouse" && setPos(null)}
+        onClick={(e) => {
+          e.stopPropagation();
+          show(); // se cierra al tocar fuera, al desplazar o al retirar el cursor
+        }}
+        className="inline-grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full border border-edge align-middle text-[11px] font-semibold leading-none text-muted hover:border-ink hover:text-ink"
+      >
+        i
+      </button>
+      {pos &&
+        createPortal(
+          <div
+            role="tooltip"
+            style={{ left: pos.x, width: pos.w, top: pos.top, bottom: pos.bottom }}
+            className="pointer-events-none fixed z-[100] rounded-2xl bg-ink px-3.5 py-2.5 text-[13px] font-normal leading-relaxed text-white shadow-[0_8px_28px_rgba(0,0,0,0.3)]"
+          >
+            {children}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
 function ZoneRow({ label, state, main, sub }: { label: string; state: "ok" | "warn" | "bad" | "nd"; main: string; sub: string }) {
   const dot = { ok: "bg-forest", warn: "bg-gold", bad: "bg-brick", nd: "bg-edge" }[state];
   return (
-    <li className="flex gap-3 py-2">
-      <span className={`mt-1.5 h-3 w-3 shrink-0 rounded-full ${dot}`} />
-      <div className="min-w-0">
-        <div className="text-sm font-semibold text-ink">{label}</div>
-        <div className="text-sm text-ink">{main}</div>
-        <div className="text-xs text-muted">{sub}</div>
-      </div>
+    <li className="flex items-center gap-2.5 py-3">
+      <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} />
+      <span className="min-w-0 flex-1 text-[15px] text-ink">{label}</span>
+      <span className="shrink-0 text-[15px] font-semibold tabular-nums text-ink">{main}</span>
+      <Info>{sub}</Info>
     </li>
   );
 }
@@ -375,32 +440,32 @@ function ZonePanel({ sel, zref }: { sel: Row; zref: ZRef | undefined }) {
   if (sel.sRenta !== null && sel.sRenta < 25) alerts.push("renta por persona entre las más bajas");
   return (
     <section>
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-base font-semibold leading-snug">
-          <span className="mr-2 inline-block h-3 w-3 rounded-full align-baseline" style={{ background: zoneDot(sel.zona) }} />
-          ¿Es buena zona? {nd ? "No se puede valorar" : v.label}
-        </h3>
-        {sel.zona !== null && <span className="shrink-0 text-sm font-bold tabular-nums">{sel.zona}/100</span>}
+      <div className="flex items-center gap-2">
+        <h2 className="text-lg font-semibold tracking-tight">La zona</h2>
+        <Info>
+          {nd ? "Sin seguridad municipal (solo capitales y más de 20.000 hab.) no se valora. " : `${v.label}. `}
+          Seguridad 35 %, riesgo de okupación 30 %, renta 20 %, pobreza 15 %. Datos del municipio entero, no de calles concretas.
+        </Info>
+        <span className="ml-auto flex items-center gap-1.5 text-[15px] font-semibold tabular-nums text-ink">
+          <span className="h-2 w-2 rounded-full" style={{ background: zoneDot(sel.zona) }} />
+          {sel.zona === null ? "Sin valorar" : `${cap(zoneShort(sel.zona).replace("Zona ", ""))} · ${sel.zona}`}
+        </span>
       </div>
-      <ul className="mt-1 divide-y divide-black/10">
+      <ul className="mt-1">
         <ZoneRow
-          label="Seguridad del municipio"
+          label="Seguridad"
           state={zst(sel.sSeg)}
-          main={
-            sel.crim === null
-              ? "Sin dato municipal"
-              : `${fmt1.format(sel.crim)} hechos delictivos por 1.000 hab. en 2025${sel.crimT === null ? "" : ` (${sgn(sel.crimT)}% frente a 2024)`}`
-          }
+          main={sel.crim === null ? "—" : `${fmt1.format(sel.crim)} delitos/1.000 hab.`}
           sub={
             sel.crim === null
               ? "Interior solo publica criminalidad de las capitales y de los municipios de más de 20.000 habitantes."
-              : `Mediana de los municipios grandes: ${fmt1.format(zref?.crim ?? 0)}. Violentos: ${fmt1.format(sel.crimV ?? 0)} por 1.000 hab.; robos con fuerza en domicilios: ${fmt1.format(sel.crimD ?? 0)}.`
+              : `Hechos delictivos por 1.000 hab. en 2025${sel.crimT === null ? "" : ` (${sgn(sel.crimT)}% frente a 2024)`}. Mediana de los municipios grandes: ${fmt1.format(zref?.crim ?? 0)}. Violentos: ${fmt1.format(sel.crimV ?? 0)}; robos con fuerza en domicilios: ${fmt1.format(sel.crimD ?? 0)}.`
           }
         />
         <ZoneRow
-          label="Riesgo de okupación (estimado)"
+          label="Okupación"
           state={sel.okR === null ? "nd" : sel.okR < 40 ? "ok" : sel.okR < 60 ? "warn" : "bad"}
-          main={sel.okR === null ? "Sin datos suficientes" : `${okLevel(sel.okR)} (${sel.okR}/100)`}
+          main={sel.okR === null ? "—" : `${okLevel(sel.okR)} · ${sel.okR}`}
           sub={[
             sel.okX === null ? null : `Estimado para ${sel.n}: ${fmt1.format(sel.okX)} veces la media nacional; su provincia, ${fmt1.format(sel.okP ?? 0)} veces`,
             sel.ocup === null ? null : `Provincia: ${fmt1.format(sel.ocup)} denuncias de allanamiento o usurpación (Interior) y ${fmt1.format(sel.okJ ?? 0)} juicios por ocupación ilegal (CGPJ) por 10.000 hab.`,
@@ -413,34 +478,37 @@ function ZonePanel({ sel, zref }: { sel: Row; zref: ZRef | undefined }) {
         <ZoneRow
           label="Renta"
           state={nd ? "nd" : zst(sel.sRenta)}
-          main={sel.renta === null ? "Sin dato" : `${fmt.format(sel.renta)} € netos por persona al año${sel.rentaH === null ? "" : ` (${fmt.format(sel.rentaH)} € por hogar)`}`}
-          sub={`Mediana de los municipios: ${fmt.format(zref?.renta ?? 0)} € por persona (INE, Atlas de renta).`}
+          main={sel.renta === null ? "—" : `${fmt.format(sel.renta)} €`}
+          sub={`Renta neta por persona al año${sel.rentaH === null ? "" : ` (${fmt.format(sel.rentaH)} € por hogar)`}. Mediana de los municipios: ${fmt.format(zref?.renta ?? 0)} € (INE, Atlas de renta).`}
         />
         <ZoneRow
           label="Pobreza"
           state={nd ? "nd" : zst(sel.sPob)}
-          main={sel.pob === null ? "Sin dato" : `${fmt1.format(sel.pob)}% de la población con ingresos por debajo del 60% de la mediana`}
-          sub={`Mediana de los municipios: ${fmt1.format(zref?.pob ?? 0)}% (INE).`}
+          main={sel.pob === null ? "—" : `${fmt1.format(sel.pob)}%`}
+          sub={`Población con ingresos por debajo del 60 % de la mediana. Mediana de los municipios: ${fmt1.format(zref?.pob ?? 0)}% (INE).`}
         />
       </ul>
-      {nd && <p className="mt-2 text-xs font-medium text-ink">Sin seguridad municipal (solo capitales y más de 20.000 hab.) no doy veredicto.</p>}
       {alerts.length > 0 && (
-        <p className="mt-2 rounded bg-white/70 p-2 text-xs font-medium text-ink">
-          ⚠ Señales de alerta: {alerts.join("; ")}.
-        </p>
+        <div className="mt-1 flex items-center gap-2 text-sm text-brick">
+          <span>⚠ {alerts.length === 1 ? "1 señal de alerta" : `${alerts.length} señales de alerta`}</span>
+          <Info>{cap(alerts.join("; "))}.</Info>
+        </div>
       )}
-      <p className="mt-2 text-xs text-muted">Seguridad 35 %, riesgo de okupación 30 %, renta 20 %, pobreza 15 %. El riesgo de okupación es una estimación: parte de la provincia (Interior y CGPJ) y se reparte por tamaño, vivienda vacía y pobreza del municipio. Datos del municipio entero, no de calles concretas.</p>
     </section>
   );
 }
 
 const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 
-function Fact({ label, value, dot }: { label: string; value: string; dot?: string }) {
+// Dato en formato "cifra grande": etiqueta pequeña encima, valor debajo y la explicación tras el botón de información
+function Stat({ label, value, dot, info }: { label: string; value: string; dot?: string; info?: ReactNode }) {
   return (
-    <div className="flex items-baseline justify-between gap-3 border-b border-line py-2">
-      <dt className="text-sm text-muted">{label}</dt>
-      <dd className="flex items-center gap-1.5 text-right text-sm font-semibold text-ink">
+    <div className="py-3">
+      <dt className="flex items-center gap-1.5 text-[13px] text-muted">
+        {label}
+        {info && <Info>{info}</Info>}
+      </dt>
+      <dd className="mt-0.5 flex items-center gap-1.5 text-[17px] font-semibold tabular-nums text-ink">
         {dot && <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: dot }} />}
         {value}
       </dd>
@@ -456,8 +524,31 @@ function InformePanel({ id, name }: { id: string; name: string }) {
   const run = async () => {
     setSt({ id, loading: true, data: null, error: null });
     try {
-      const res = await fetch("/api/informe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
-      const j = await res.json();
+      const send = (clave: string | null) =>
+        fetch("/api/informe", { method: "POST", headers: { "Content-Type": "application/json", ...(clave ? { "x-informe-clave": clave } : {}) }, body: JSON.stringify({ id }) });
+      let clave: string | null = null;
+      try {
+        clave = localStorage.getItem("inmo-clave");
+      } catch {
+        // sin almacenamiento: se pedirá cada vez
+      }
+      let res = await send(clave);
+      let j = await res.json();
+      if (res.status === 401 && j.clave) {
+        // versión publicada con clave de acceso: se pide una vez y se recuerda en este navegador
+        const typed = window.prompt("Clave de acceso para los informes con IA");
+        if (typed) {
+          res = await send(typed);
+          j = await res.json();
+          if (res.ok) {
+            try {
+              localStorage.setItem("inmo-clave", typed);
+            } catch {
+              // no se puede recordar
+            }
+          } else if (res.status === 401) j = { error: "Clave incorrecta." };
+        }
+      }
       setSt({ id, loading: false, data: res.ok ? j : null, error: res.ok ? null : (j.error ?? "No se pudo generar el informe.") });
     } catch {
       setSt({ id, loading: false, data: null, error: "No se pudo contactar con el servidor." });
@@ -466,17 +557,16 @@ function InformePanel({ id, name }: { id: string; name: string }) {
   return (
     <section>
       <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-sm font-semibold text-ink">Precios y noticias de la zona (IA)</div>
-          <div className="text-xs text-muted">Compra, alquiler, zonas, okupación y proyectos de {name}, con fuentes</div>
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg font-semibold tracking-tight">Precios y noticias</h2>
+          <Info>Resumen con IA de precios de compra y alquiler, okupación y proyectos de {name}, con sus fuentes. Busca en la web: tarda entre 30 segundos y 2 minutos.</Info>
         </div>
         {!cur.data && (
-          <button onClick={run} disabled={cur.loading} className="shrink-0 text-sm font-semibold text-forest underline underline-offset-4 hover:text-forest-dark disabled:opacity-60">
+          <button onClick={run} disabled={cur.loading} className="shrink-0 rounded-full bg-ink px-4 py-1.5 text-sm font-semibold text-white hover:bg-charcoal disabled:opacity-60">
             {cur.loading ? "Buscando…" : "Generar"}
           </button>
         )}
       </div>
-      {cur.loading && <p className="mt-2 text-xs text-muted">Busca en la web y resume; suele tardar entre 30 segundos y 2 minutos.</p>}
       {cur.error && <p className="mt-2 text-sm text-brick">{cur.error}</p>}
       {cur.data && (
         <div className="mt-2 space-y-1 text-sm">
@@ -523,6 +613,8 @@ function Compare({ rows, onClose, onOpen, onRemove }: { rows: Row[]; onClose: ()
     { label: "Renta por persona", get: (r) => r.renta, show: (v) => `${fmt.format(v)} €`, best: "max" },
     { label: "Vivienda vacía", get: (r) => r.vac, show: (v) => `${fmt1.format(v)}%`, best: "min" },
     { label: "Valor tasado", get: (r) => r.vt, show: (v) => `${fmt.format(v)} €/m²`, best: null },
+    { label: "Alquiler mensual (estimado)", get: (r) => r.alqRE, show: (v) => `≈ ${fmt.format(v)} €`, best: null },
+    { label: "Rentabilidad bruta", get: (r) => r.rb, show: (v) => `${fmt1.format(v)}%`, best: "max" },
     { label: "Vivienda prevista por 1.000 hab.", get: (r) => r.pendK, show: (v) => fmt.format(v), best: null },
     { label: "Universidad", get: (r) => r.uniKm, show: (v) => `${fmt1.format(v)} km`, best: "min" },
     { label: "Ciudad grande", get: (r) => r.dc, show: (v) => `${fmt.format(v)} km`, best: "min" },
@@ -623,6 +715,7 @@ type Filters = {
   maxCosta: number | null; // km máximos al mar
   minTur: number | null; // % mínimo de vivienda turística
   maxUniKm: number | null; // km máximos a una universidad
+  minUni: number | null; // acceso universitario mínimo (0-100: tamaño de la universidad x cercanía); deja fuera las sedes pequeñas
   onlyUni: boolean;
   onlyProj: boolean;
   minScore: number;
@@ -631,26 +724,15 @@ type Filters = {
 };
 const DEFAULTS: Filters = {
   q: "", ccaa: "", prov: "", minPop: 5000, maxPop: 0, minG5: null, minViv: null, minPend: null, minInv: null, minRec: 0, maxOk: null, zone: 0,
-  minRenta: null, maxPob: null, maxVt: null, near: null, maxCosta: null, minTur: null, maxUniKm: null, onlyUni: false, onlyProj: false, minScore: 0, maxScore: 100, minFut: 0,
+  minRenta: null, maxPob: null, maxVt: null, near: null, maxCosta: null, minTur: null, maxUniKm: null, minUni: null, onlyUni: false, onlyProj: false, minScore: 0, maxScore: 100, minFut: 0,
 };
-// Secciones de filtros (chips de la barra superior): id, título y los campos que controlan (para contar y restablecer)
-const SECTIONS: { id: string; label: string; title: string; keys: (keyof Filters)[] }[] = [
-  { id: "ambito", label: "Ámbito", title: "Dónde buscar", keys: ["ccaa", "prov"] },
-  { id: "tamano", label: "Tamaño", title: "Tamaño del municipio", keys: ["minPop", "maxPop"] },
-  { id: "crec", label: "Crecimiento", title: "Crecimiento ya observado", keys: ["minG5", "minViv", "minScore", "maxScore", "minFut"] },
-  { id: "plan", label: "Planeamiento", title: "Planeamiento y gasto público", keys: ["minPend", "minInv"] },
-  { id: "zona", label: "Zona", title: "Zona y veredicto", keys: ["minRec", "maxOk", "zone", "minRenta", "maxPob"] },
-  { id: "precio", label: "Precio", title: "Precio de la vivienda", keys: ["maxVt"] },
-  { id: "cerca", label: "Cercanía", title: "Cercanía y turismo", keys: ["near", "maxCosta", "maxUniKm", "minTur"] },
-  { id: "extras", label: "Extras", title: "Extras", keys: ["onlyUni", "onlyProj"] },
-];
 // Estrategias: puntos de partida de un clic. Cada una parte de los filtros por defecto y aplica los suyos.
-type SortKey = "score" | "fut" | "ok" | "g5";
+type SortKey = "score" | "fut" | "ok" | "g5" | "est";
 const PRESETS: { id: string; label: string; hint: string; f: Partial<Filters>; sort?: SortKey }[] = [
   { id: "buenas", label: "Buenas candidatas", hint: "Crecimiento alto, zona verificada y poco riesgo de okupación", f: { minRec: 3 } },
   { id: "recomendadas", label: "Las que más crecen", hint: "A estudiar o mejor: crecimiento suficiente y sin señales de alerta", f: { minRec: 2 } },
   { id: "seguras", label: "Zona tranquila", hint: "Zona buena y riesgo de okupación bajo, sin los descartados, ordenadas por menor riesgo", f: { zone: 60, maxOk: 40, minRec: 1 }, sort: "ok" },
-  { id: "estudiantes", label: "Alquiler a estudiantes", hint: "Universidad a menos de 5 km, sin los descartados", f: { maxUniKm: 5, minRec: 1 } },
+  { id: "estudiantes", label: "Alquiler a estudiantes", hint: "Universidad grande y cercana, sin sedes pequeñas. Incluye todas las ciudades universitarias; el punto de color avisa del veredicto. Orden: 60 % universidad, 25 % crecimiento, 15 % poca okupación", f: { minUni: 25 }, sort: "est" },
   { id: "cinturon", label: "Cerca de gran ciudad", hint: "A menos de 30 km de una ciudad grande y hasta 50.000 habitantes", f: { near: 30, maxPop: 50000, minRec: 1 } },
   { id: "turismo", label: "Destino turístico", hint: "Más del 5 % de las viviendas son turísticas, sin los descartados: demanda de alquiler vacacional (y más regulación)", f: { minTur: 5, minRec: 1 } },
   { id: "costa", label: "Costa", hint: "A menos de 10 km del mar, sin los descartados", f: { maxCosta: 10, minRec: 1 } },
@@ -658,40 +740,27 @@ const PRESETS: { id: string; label: string; hint: string; f: Partial<Filters>; s
   { id: "todas", label: "Todo", hint: "Todos los municipios de 5.000 habitantes o más, incluidos los descartados", f: {} },
 ];
 const SORTS: [SortKey, string][] = [
-  ["score", "Índice de crecimiento"],
-  ["fut", "Perspectivas de futuro"],
-  ["ok", "Menor riesgo de okupación"],
-  ["g5", "Crecimiento de población"],
+  ["score", "Índice"],
+  ["g5", "Más crecimiento"],
+  ["ok", "Menos okupación"],
 ];
 
-const sectionCount = (f: Filters, keys: (keyof Filters)[]) => {
-  let n = 0;
-  // minScore y maxScore cuentan como un solo filtro
-  const ks = keys.includes("minScore") ? keys.filter((k) => k !== "maxScore") : keys;
-  for (const k of ks) {
-    if (k === "minScore") n += f.minScore > 0 || f.maxScore < 100 ? 1 : 0;
-    else if (f[k] !== DEFAULTS[k]) n++;
-  }
-  return n;
-};
-
-function Sel({ label, value, onChange, options, note }: { label: string; value: string; onChange: (v: string) => void; options: [string, string][]; note?: string }) {
+// Opción de filtro: una pastilla que se marca o desmarca
+function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; children: ReactNode }) {
   return (
-    <label className="block text-sm font-semibold text-ink">
-      {label}
-      <select className="mt-1 h-10 w-full rounded-lg border border-edge bg-white px-2 text-[15px] font-normal" value={value} onChange={(e) => onChange(e.target.value)}>
-        {options.map(([v, t]) => (
-          <option key={v} value={v}>
-            {t}
-          </option>
-        ))}
-      </select>
-      {note && <span className="mt-1 block text-xs font-normal text-muted">{note}</span>}
-    </label>
+    <button onClick={onClick} aria-pressed={on} className={`rounded-full px-3.5 py-2 text-sm font-medium ${on ? "bg-ink text-white" : "bg-paper text-ink hover:bg-tint"}`}>
+      {children}
+    </button>
   );
 }
-const numOrNull = (v: string) => (v === "" ? null : Number(v));
-const optNum = (cur: number | null) => (cur === null ? "" : String(cur));
+function FilterRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="py-3">
+      <div className="mb-2 text-[13px] text-muted">{label}</div>
+      <div className="flex flex-wrap gap-2">{children}</div>
+    </div>
+  );
+}
 
 const FAV_KEY = "inmo-favs";
 function subscribeFavs(cb: () => void) {
@@ -753,7 +822,7 @@ function TrendChart({ series }: { series: Serie[] }) {
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap gap-1 text-[13px]">
+        <div className="flex gap-1 whitespace-nowrap text-[13px]">
           {series.map((x) => (
             <button
               key={x.id}
@@ -775,13 +844,13 @@ function TrendChart({ series }: { series: Serie[] }) {
           </div>
         )}
       </div>
-      <div className="mt-3 text-sm text-muted">
+      <div className="mt-3 flex items-center gap-1.5 text-sm text-muted">
         <span className="font-semibold tabular-nums" style={{ color: col }}>
           {ch >= 0 ? "+" : ""}
           {fmt1.format(ch)}%
-        </span>{" "}
+        </span>
         desde {pts[0][0]}
-        {se.note ? <span> · {se.note}</span> : null}
+        {se.note ? <Info>{cap(se.note)}.</Info> : null}
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="mt-2 h-36 w-full" role="img" aria-label={`${se.label} de ${pts[0][0]} a ${pts[pts.length - 1][0]}`}>
         <line x1="0" y1={H - 1} x2={W} y2={H - 1} stroke="var(--line)" strokeWidth="2" />
@@ -789,10 +858,10 @@ function TrendChart({ series }: { series: Serie[] }) {
       </svg>
       <div className="flex justify-between text-xs tabular-nums text-muted">
         <span>
-          {pts[0][0]} · {fmt.format(pts[0][1])} {se.unit}
+          {pts[0][0]} · {(pts[0][1] < 100 ? fmt1 : fmt).format(pts[0][1])} {se.unit}
         </span>
         <span>
-          {pts[pts.length - 1][0]} · {fmt.format(pts[pts.length - 1][1])} {se.unit}
+          {pts[pts.length - 1][0]} · {(pts[pts.length - 1][1] < 100 ? fmt1 : fmt).format(pts[pts.length - 1][1])} {se.unit}
         </span>
       </div>
     </div>
@@ -812,7 +881,7 @@ function MiniMap({ r }: { r: Row }) {
       interactive: false,
       attributionControl: false,
     });
-    new maplibregl.Marker({ color: "#2f6a4a", scale: 0.6 }).setLngLat([r.lon, r.lat]).addTo(m);
+    new maplibregl.Marker({ color: "#0a8f5b", scale: 0.6 }).setLngLat([r.lon, r.lat]).addTo(m);
     return () => m.remove();
   }, [r.lon, r.lat]);
   return (
@@ -829,14 +898,13 @@ function MiniMap({ r }: { r: Row }) {
 function MuniRow({ r, onOpen, fav, onFav, rank }: { r: Row; onOpen: (r: Row) => void; fav: boolean; onFav: (id: string) => void; rank?: number }) {
   const rc = recommend(r);
   return (
-    <li className="flex items-center gap-3 border-b border-line">
-      <button onClick={() => onOpen(r)} className="flex min-w-0 flex-1 items-center gap-3 py-3 text-left">
-        {rank !== undefined && <span className="w-5 shrink-0 text-right text-xs tabular-nums text-muted">{rank}</span>}
+    <li className="flex items-center gap-2">
+      <button onClick={() => onOpen(r)} className="flex min-w-0 flex-1 items-center gap-3 py-3.5 text-left">
+        {rank !== undefined && <span className="w-5 shrink-0 text-xs tabular-nums text-muted">{rank}</span>}
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[15px] font-semibold text-ink">{r.n}</span>
-          <span className="flex items-center gap-1.5 truncate text-[13px] text-muted">
+          <span className="block truncate text-base font-semibold text-ink">{r.n}</span>
+          <span className="flex items-center gap-1.5 truncate text-[13px] text-muted" title={rc?.label}>
             {rc && <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: rc.color }} />}
-            {rc ? `${rc.label} · ` : ""}
             {r.prov}
           </span>
         </span>
@@ -889,7 +957,7 @@ function Ficha({
   onBack,
   backLabel,
   onMap,
-  mapLabel = "Ver en el mapa",
+  mapLabel = "Mapa",
 }: {
   sel: Row;
   data: Data | null;
@@ -899,9 +967,9 @@ function Ficha({
   hist: boolean;
   fav: boolean;
   onFav: () => void;
-  onBack: () => void;
-  backLabel: string;
-  onMap: () => void;
+  onBack?: () => void;
+  backLabel?: string;
+  onMap?: () => void;
   mapLabel?: string;
 }) {
   const factors = buildFactors(sel, data, hist);
@@ -915,53 +983,56 @@ function Ficha({
 
   const impact = (items: typeof calc, sign: 1 | -1) =>
     items.map((f) => (
-      <li key={f.k} className="flex gap-2.5 py-2 text-sm">
-        <span className={`mt-0.5 shrink-0 font-semibold ${sign > 0 ? "text-forest" : "text-brick"}`}>{sign > 0 ? "✓" : "✕"}</span>
-        <span>
-          <span className="font-semibold text-ink">{f.label}.</span> <span className="text-muted">{f.hint}.</span>{" "}
-          {PCT_FACTORS.has(f.k) && (
-            <span className={sign > 0 ? "text-forest" : "text-brick"}>
-              {sign > 0 ? `Mejor que el ${Math.round(f.v ?? 0)} % de los municipios.` : `Peor que el ${Math.round(100 - (f.v ?? 0))} % de los municipios.`}
-            </span>
-          )}
-        </span>
+      <li key={f.k} className="flex items-center gap-2.5 py-2.5 text-[15px]">
+        <span className={`shrink-0 font-semibold ${sign > 0 ? "text-forest" : "text-brick"}`}>{sign > 0 ? "✓" : "✕"}</span>
+        <span className="min-w-0 flex-1 text-ink">{f.label}</span>
+        <Info>
+          {f.hint}.
+          {PCT_FACTORS.has(f.k) && (sign > 0 ? ` Mejor que el ${Math.round(f.v ?? 0)} % de los municipios.` : ` Peor que el ${Math.round(100 - (f.v ?? 0))} % de los municipios.`)}
+        </Info>
       </li>
     ));
+  const vp = data?.vtProv?.[sel.id.slice(0, 2)];
+  const vpLast = vp && vp.length > 0 ? vp[vp.length - 1][1] : null;
 
   return (
     <article className="@container pb-16">
-      <div className="flex items-center justify-between gap-2 py-3 text-sm">
-        <button onClick={onBack} className="font-semibold text-forest hover:text-forest-dark">
-          ← {backLabel}
-        </button>
-        <div className="flex items-center gap-4">
-          <button onClick={onMap} className="font-semibold text-muted hover:text-ink">
-            {mapLabel}
+      <div className="flex items-center justify-between gap-2 whitespace-nowrap py-3 text-sm">
+        {onBack ? (
+          <button onClick={onBack} className="min-w-0 truncate font-semibold text-forest hover:text-forest-dark">
+            ← {backLabel}
           </button>
+        ) : (
+          <span />
+        )}
+        <div className="flex items-center gap-4">
+          {onMap && (
+            <button onClick={onMap} className="font-semibold text-muted hover:text-ink">
+              {mapLabel}
+            </button>
+          )}
           <button onClick={onFav} aria-pressed={fav} className={`font-semibold ${fav ? "text-gold" : "text-muted hover:text-ink"}`}>
             {fav ? "★ Guardado" : "☆ Guardar"}
           </button>
         </div>
       </div>
 
-      <header className="flex items-start justify-between gap-4 pt-2">
+      <header className="flex items-start justify-between gap-4 pt-1">
         <div className="min-w-0">
-          <h1 className="text-3xl font-semibold leading-tight tracking-tight text-ink">{sel.n}</h1>
+          <h1 className="text-[28px] font-semibold leading-tight tracking-tight text-ink">{sel.n}</h1>
           <p className="text-sm text-muted">
-            {sel.prov} · {fmt.format(sel.pop)} habitantes
+            {sel.prov} · {fmt.format(sel.pop)} hab.
           </p>
-          <div className="mt-4 flex items-baseline gap-3">
-            <span className="text-5xl font-semibold leading-none tabular-nums tracking-tight text-ink">{sel.score === null ? "—" : fmt1.format(sel.score)}</span>
-            <span className="text-sm text-muted">índice de crecimiento{rank ? ` · puesto ${fmt.format(rank)} de ${fmt.format(total)}` : ""}</span>
+          <div className="mt-5 flex items-center gap-2">
+            <span className="text-6xl font-semibold leading-none tabular-nums tracking-tight text-ink">{sel.score === null ? "—" : fmt1.format(sel.score)}</span>
+            <Info>Índice de crecimiento, de 0 a 100{rank ? `. Puesto ${fmt.format(rank)} de ${fmt.format(total)} municipios` : ""}.</Info>
           </div>
           {rec && (
-            <p className="mt-2 text-sm">
-              <span className="mr-1.5 inline-block h-2 w-2 rounded-full align-middle" style={{ background: rec.color }} />
-              <b className="text-ink">{rec.label}.</b>{" "}
-              {rec.bad.length > 0 && <span className="text-brick">{cap(rec.bad.join(", "))}. </span>}
-              {rec.warn.length > 0 && <span className="text-ink">{cap(rec.warn.join(", "))}. </span>}
-              {rec.good.length > 0 && <span className="text-forest">{cap(rec.good.join(", "))}.</span>}
-            </p>
+            <div className="mt-3 flex items-center gap-2 text-[15px] font-semibold text-ink">
+              <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: rec.color }} />
+              {rec.label}
+              {rec.bad.length + rec.warn.length + rec.good.length > 0 && <Info>{cap([...rec.bad, ...rec.warn, ...rec.good].join(", "))}.</Info>}
+            </div>
           )}
         </div>
         <MiniMap r={sel} />
@@ -970,95 +1041,127 @@ function Ficha({
       {(() => {
         const series: Serie[] = [];
         if (sel.ps && data) series.push({ id: "pop", label: "Población", pts: sel.ps.map((v, i) => [data.psY + i, v]), unit: "hab.", up: "good" });
-        const vp = data?.vtProv?.[sel.id.slice(0, 2)];
-        if (sel.vtS) series.push({ id: "vt", label: "Valor tasado", pts: sel.vtS, unit: "€/m²", up: "good", note: "precio de tasación (Ministerio)" });
+        if (sel.vtS) series.push({ id: "vt", label: "Precio", pts: sel.vtS, unit: "€/m²", up: "good", note: "precio de tasación (Ministerio)" });
         else if (vp && vp.length > 2)
-          series.push({ id: "vt", label: "Valor tasado", pts: vp, unit: "€/m²", up: "good", note: `media de la provincia de ${sel.prov}: el Ministerio solo lo da por municipio en los de más de 25.000 hab.` });
+          series.push({ id: "vt", label: "Precio", pts: vp, unit: "€/m²", up: "good", note: `media de la provincia de ${sel.prov}: el Ministerio solo lo da por municipio en los de más de 25.000 hab` });
+        if (sel.alqS) series.push({ id: "alq", label: "Alquiler", pts: sel.alqS, unit: "€/m² al mes", up: "good", note: "mediana de los contratos declarados; último dato oficial, 2024 (Ministerio de Vivienda)" });
         if (sel.ocupS) series.push({ id: "ok", label: "Okupación", pts: sel.ocupS.map((v, i) => [2021 + i, v]), unit: "denuncias", up: "bad", note: `denuncias en toda la provincia de ${sel.prov}` });
         return series.length > 0 ? (
-          <section className="mt-6">
+          <section className="mt-7">
             <TrendChart series={series} />
           </section>
         ) : null;
       })()}
 
       <section className="mt-8">
-        <h2 className="text-lg font-semibold tracking-tight">Datos clave</h2>
-        <dl className="mt-1 grid gap-x-8 @xl:grid-cols-2">
-          <Fact label="Riesgo de okupación" value={sel.okR === null ? "Sin dato" : `${okLevel(sel.okR)} (${sel.okR}/100)`} dot={okDot(sel.okR)} />
-          <Fact label="Zona" value={sel.zona === null ? "Sin valorar" : `${zoneShort(sel.zona)} (${sel.zona}/100)`} dot={zoneDot(sel.zona)} />
-          <Fact label="Paro" value={sel.paro === null ? "Sin dato" : `${fmt1.format(sel.paro)}%`} />
-          <Fact label="Renta por persona" value={sel.renta === null ? "Sin dato" : `${fmt.format(sel.renta)} €`} />
-          <Fact label="Valor tasado" value={sel.vt === null ? "Solo más de 25.000 hab." : `${fmt.format(sel.vt)} €/m²`} />
-          <Fact label="Vivienda vacía" value={sel.vac === null ? "Sin dato" : `${fmt1.format(sel.vac)}%`} />
-          <Fact label="Universidad" value={sel.uniKm === null ? "Ninguna a menos de 45 km" : `${sel.uniNear ?? "Sede"} · ${fmt1.format(sel.uniKm)} km${sel.uniAt ? ` (${sel.uniAt})` : ""}`} />
-          <Fact label="Ciudad grande" value={sel.dc === 0 ? "Lo es" : `${fmt.format(sel.dc)} km (${sel.cn})`} />
-          <Fact label="Mar" value={sel.costa === null ? "Sin dato" : `${fmt.format(Math.round(sel.costa))} km`} />
-          <Fact label="Vivienda turística" value={sel.tur === null ? "Sin dato" : `${fmt1.format(sel.tur)}% (${fmt.format(sel.turN ?? 0)} viviendas)`} />
-          <Fact label="Plazas turísticas" value={sel.turP === null ? "Sin dato" : `${fmt1.format(sel.turP)} por 100 hab.`} />
-          <Fact
-            label={`Turismo anual${sel.pernY ? ` (${sel.pernY})` : ""}`}
-            value={
-              sel.pernH === null
-                ? "Sin dato (no es punto turístico del INE)"
-                : `${fmt1.format(sel.pernH)} noches por habitante${sel.pernT === null ? "" : ` (${sgn(sel.pernT)}%)`}`
+        <dl className="grid grid-cols-2 gap-x-6 @xl:grid-cols-3">
+          <Stat
+            label="Okupación"
+            value={sel.okR === null ? "—" : okLevel(sel.okR)}
+            dot={okDot(sel.okR)}
+            info={sel.okR === null ? "Sin datos suficientes." : `Riesgo estimado: ${sel.okR}/100. No hay datos públicos por municipio: se reparte el dato de la provincia según tamaño, vivienda vacía y pobreza.`}
+          />
+          <Stat
+            label="Zona"
+            value={sel.zona === null ? "—" : cap(zoneShort(sel.zona).replace("Zona ", ""))}
+            dot={zoneDot(sel.zona)}
+            info={sel.zona === null ? "Sin seguridad municipal (solo capitales y más de 20.000 hab.) no se valora." : `${sel.zona}/100: seguridad, okupación, renta y pobreza.`}
+          />
+          <Stat label="Paro" value={sel.paro === null ? "—" : `${fmt1.format(sel.paro)}%`} info="Paro registrado sobre la población de 18 a 64 años (SEPE)." />
+          <Stat
+            label="Valor tasado"
+            value={sel.vt !== null ? `${fmt.format(sel.vt)} €/m²` : vpLast !== null ? `${fmt.format(vpLast)} €/m²` : "—"}
+            info={sel.vt !== null ? "Precio de tasación de la vivienda (Ministerio)." : `Media de la provincia de ${sel.prov}: el Ministerio solo lo publica por municipio en los de más de 25.000 hab.`}
+          />
+          <Stat
+            label="Alquiler"
+            value={sel.alqRE !== null ? `≈ ${fmt.format(sel.alqRE)} €/mes` : sel.alqE !== null ? `≈ ${fmt1.format(sel.alqE)} €/m²` : "—"}
+            info={
+              sel.alq === null
+                ? "Sin dato de alquiler (Ministerio de Vivienda)."
+                : `Estimación para hoy (${fmt1.format(sel.alqE ?? 0)} €/m² al mes). El último dato oficial es de ${sel.alqY}: ${sel.alqR === null ? "" : `${fmt.format(sel.alqR)} €/mes, `}${fmt1.format(sel.alq)} €/m²; se actualiza con su subida anual reciente (${fmt1.format(sel.alqK ?? 0)} %). Son contratos en vigor, no anuncios: un piso que sale hoy al mercado suele pedir más. Para precios de anuncios, usa «Precios y noticias».`
             }
           />
-          <Fact label="Vivienda prevista" value={sel.pendK === null ? "Sin dato" : `${fmt.format(sel.pendK)} por 1.000 hab.`} />
+          {sel.rb !== null && (
+            <Stat label="Rentabilidad bruta" value={`${fmt1.format(sel.rb)}%`} info="Orientativa: alquiler estimado de un año dividido entre el valor tasado, antes de gastos e impuestos." />
+          )}
+          <Stat label="Vivienda vacía" value={sel.vac === null ? "—" : `${fmt1.format(sel.vac)}%`} info="Censo de 2021 (INE)." />
+          <Stat
+            label="Universidad"
+            value={sel.uniKm === null ? "—" : `${fmt1.format(sel.uniKm)} km`}
+            info={sel.uniKm === null ? "Ninguna a menos de 45 km por carretera." : `${sel.uniNear ?? "Sede universitaria"}${sel.uniAt ? `, en ${sel.uniAt}` : ""}. Distancia estimada por carretera.`}
+          />
+          <Stat label="Ciudad grande" value={sel.dc === 0 ? "Lo es" : `${fmt.format(sel.dc)} km`} info={sel.dc === 0 ? "Tiene más de 100.000 habitantes." : `${sel.cn}, la ciudad de más de 100.000 hab. más cercana por carretera (estimado).`} />
+          <Stat label="Mar" value={sel.costa === null ? "—" : `${fmt.format(Math.round(sel.costa))} km`} info="Distancia en línea recta." />
+          <Stat
+            label="Vivienda turística"
+            value={sel.tur === null ? "—" : `${fmt1.format(sel.tur)}%`}
+            info={`${sel.tur === null ? "Sin dato" : `${fmt.format(sel.turN ?? 0)} viviendas de uso turístico`}${sel.turP === null ? "" : `; ${fmt1.format(sel.turP)} plazas por 100 hab`} (INE).`}
+          />
+          {sel.pernH !== null && (
+            <Stat
+              label="Turismo anual"
+              value={`${fmt1.format(sel.pernH)} noches/hab.`}
+              info={`Pernoctaciones al año por habitante${sel.pernY ? ` (${sel.pernY})` : ""}${sel.pernT === null ? "" : `; ${sgn(sel.pernT)}% en un año`}. Solo en puntos turísticos del INE.`}
+            />
+          )}
+          <Stat
+            label="Vivienda prevista"
+            value={sel.pendK === null ? "—" : `${fmt.format(sel.pendK)} por mil hab.`}
+            info={`Viviendas previstas en el planeamiento y aún sin construir, por 1.000 habitantes (SIU).${(sel.pendK ?? 0) >= 3000 ? " Son muchísimas para su tamaño: suele ser un plan antiguo o inviable." : ""}`}
+          />
         </dl>
       </section>
 
-      <section className="mt-8 grid gap-x-10 gap-y-4 @xl:grid-cols-2">
-        <div>
-          <h2 className="text-lg font-semibold tracking-tight">Puntos fuertes</h2>
-          {pros.length > 0 ? <ul>{impact(pros, 1)}</ul> : <p className="py-2 text-sm text-muted">Nada destaca por encima de la media.</p>}
-        </div>
-        <div>
-          <h2 className="text-lg font-semibold tracking-tight">Puntos débiles</h2>
-          {cons.length > 0 ? <ul>{impact(cons, -1)}</ul> : <p className="py-2 text-sm text-muted">Nada queda claramente por debajo.</p>}
-        </div>
+      {(pros.length > 0 || cons.length > 0) && (
+        <section className="mt-6 grid gap-x-10 gap-y-4 @xl:grid-cols-2">
+          {pros.length > 0 && (
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight">A favor</h2>
+              <ul>{impact(pros, 1)}</ul>
+            </div>
+          )}
+          {cons.length > 0 && (
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight">En contra</h2>
+              <ul>{impact(cons, -1)}</ul>
+            </div>
+          )}
+        </section>
+      )}
+
+      <section className="mt-8">
+        <ZonePanel sel={sel} zref={data?.zref} />
       </section>
-      {(sel.pendK ?? 0) >= 3000 && <p className="mt-2 text-xs text-ink">⚠ El planeamiento prevé muchísimas viviendas para su tamaño: suele ser un plan antiguo o inviable.</p>}
 
       <section className="mt-8">
         <InformePanel id={sel.id} name={sel.n} />
         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm">
-          <a href={idealistaUrl(sel)} target="_blank" rel="noopener noreferrer" className="font-semibold text-forest underline underline-offset-4">
-            Casas en venta en idealista ↗
+          <a href={idealistaUrl(sel)} target="_blank" rel="noopener noreferrer" className="font-semibold text-forest">
+            Casas en idealista ↗
           </a>
-          <a href={googleUrl(sel)} target="_blank" rel="noopener noreferrer" className="text-forest underline underline-offset-4">
-            Buscar en Google
+          <a href={googleUrl(sel)} target="_blank" rel="noopener noreferrer" className="font-semibold text-forest">
+            Google ↗
           </a>
         </div>
       </section>
 
       {sel.proj && sel.proj.length > 0 && (
         <section className="mt-8">
-          <h2 className="text-lg font-semibold tracking-tight">Proyectos concretos</h2>
-          <div className="mt-2 space-y-2">
+          <h2 className="text-lg font-semibold tracking-tight">Proyectos</h2>
+          <ul>
             {sel.proj.map((p) => (
-              <div key={p.n} className="text-sm">
-                <div className="font-semibold text-ink">
-                  {PROJ_ICON[p.t] ?? "🏗️"} {p.n}
-                </div>
-                <div className="text-muted">
-                  {p.e}{" "}
-                  <a href={p.u} target="_blank" rel="noopener noreferrer" className="font-medium text-forest underline">
-                    Fuente ↗
-                  </a>
-                </div>
-              </div>
+              <li key={p.n} className="flex items-center gap-2.5 py-2.5 text-[15px]">
+                <span className="shrink-0">{PROJ_ICON[p.t] ?? "🏗️"}</span>
+                <a href={p.u} target="_blank" rel="noopener noreferrer" className="min-w-0 flex-1 text-ink hover:text-forest">
+                  {p.n} ↗
+                </a>
+                <Info>{p.e}</Info>
+              </li>
             ))}
-          </div>
+          </ul>
         </section>
       )}
-
-      <section className="mt-8">
-        <h2 className="text-lg font-semibold tracking-tight">La zona</h2>
-        <div className="mt-2">
-          <ZonePanel sel={sel} zref={data?.zref} />
-        </div>
-      </section>
 
       <details className="mt-8 border-t border-line">
         <summary className="cursor-pointer py-3 text-sm font-semibold text-ink">Todos los indicadores del índice</summary>
@@ -1099,137 +1202,84 @@ function Ficha({
   );
 }
 
-// Tarjeta que aparece junto a la bolita tocada; la flecha la despliega con más datos sin salir del mapa
-function MapCard({
-  r,
-  pt,
-  box,
-  data,
-  hist,
-  fav,
-  onFav,
-  onOpen,
-  onClose,
-}: {
-  r: Row;
-  pt: { x: number; y: number };
-  box: { w: number; h: number };
-  data: Data | null;
-  hist: boolean;
-  fav: boolean;
-  onFav: () => void;
-  onOpen: () => void;
-  onClose: () => void;
-}) {
-  const [more, setMore] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ w: 300, h: 260 });
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => setSize({ w: el.offsetWidth, h: el.offsetHeight }));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  const rc = recommend(r);
-  const gap = 16;
-  // a la derecha de la bolita; si no cabe, a la izquierda; siempre dentro del mapa
-  let left = pt.x + gap;
-  if (left + size.w > box.w - 8) left = pt.x - gap - size.w;
-  left = Math.min(Math.max(left, 8), Math.max(8, box.w - size.w - 8));
-  const top = Math.min(Math.max(pt.y - 48, 8), Math.max(8, box.h - size.h - 8));
-  const factors = more ? buildFactors(r, data, hist) : [];
-  const wsum = factors.reduce((a, f) => (f.v === null ? a : a + f.w), 0);
-  const calc = factors.map((f) => ({ ...f, delta: f.v === null ? null : (f.w * (f.v - 50)) / wsum }));
-  const pros = calc.filter((f) => (f.delta ?? 0) >= 0.4).sort((a, b) => (b.delta ?? 0) - (a.delta ?? 0)).slice(0, 2);
-  const cons = calc.filter((f) => (f.delta ?? 0) <= -0.4).sort((a, b) => (a.delta ?? 0) - (b.delta ?? 0)).slice(0, 2);
+// Hoja que sube desde abajo y se superpone al mapa, como en las apps de bolsa: se baja arrastrando o con la flecha
+function Sheet({ expanded, onExpand, onDown, children }: { expanded: boolean; onExpand: () => void; onDown: () => void; children: ReactNode }) {
+  const [dy, setDy] = useState(0);
+  const drag = useRef<{ y: number; ok: boolean } | null>(null);
+  const scroller = useRef<HTMLDivElement>(null);
   return (
     <div
-      ref={ref}
-      style={{ left, top, maxHeight: box.h - 16 }}
-      className="absolute z-10 w-[min(19rem,calc(100%-1rem))] overflow-y-auto rounded-2xl bg-white p-4 shadow-[0_6px_28px_rgba(0,0,0,0.16)]"
+      onTouchStart={(e) => {
+        const inHandle = (e.target as HTMLElement).closest("[data-handle]") !== null;
+        drag.current = { y: e.touches[0].clientY, ok: !expanded || inHandle || (scroller.current?.scrollTop ?? 0) <= 0 };
+      }}
+      onTouchMove={(e) => {
+        const d = drag.current;
+        if (!d?.ok) return;
+        const v = e.touches[0].clientY - d.y;
+        setDy(expanded ? Math.max(0, v) : Math.max(-60, v));
+      }}
+      onTouchEnd={() => {
+        if (dy > 70) onDown();
+        else if (dy < -40) onExpand();
+        drag.current = null;
+        setDy(0);
+      }}
+      style={{ transform: `translateY(${dy}px)`, transition: dy ? "none" : "transform 0.25s ease" }}
+      className={`sheet-in absolute inset-x-0 bottom-0 z-20 mx-auto flex max-w-2xl flex-col rounded-t-3xl bg-white shadow-[0_-8px_40px_rgba(0,0,0,0.18)] ${expanded ? "h-[calc(100%-69px)]" : "touch-none"}`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="truncate text-lg font-semibold tracking-tight text-ink">{r.n}</div>
-          <div className="text-sm text-muted">
-            {r.prov} · {fmt.format(r.pop)} hab.
-          </div>
-        </div>
-        <button onClick={onClose} aria-label="Cerrar" className="-mr-1 -mt-1 shrink-0 rounded-full px-2 py-1 text-lg leading-none text-muted hover:bg-paper hover:text-ink">
-          ×
+      <div data-handle className="relative flex h-11 shrink-0 items-start justify-center pt-2.5">
+        <button onClick={expanded ? onDown : onExpand} aria-label={expanded ? "Reducir" : "Ver ficha completa"} className="h-1.5 w-10 rounded-full bg-edge" />
+        <button onClick={onDown} aria-label={expanded ? "Bajar la ficha" : "Cerrar"} className="absolute right-3 top-2 grid h-8 w-8 place-items-center rounded-full bg-paper text-ink hover:bg-tint">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
         </button>
       </div>
-      <div className="mt-2 flex items-end justify-between gap-3">
-        <div>
-          <div className="text-4xl font-semibold leading-none tabular-nums tracking-tight text-ink">{r.score === null ? "—" : fmt1.format(r.score)}</div>
-          {rc && (
-            <div className="mt-1.5 flex items-center gap-1.5 text-sm text-ink">
-              <span className="h-2 w-2 rounded-full" style={{ background: rc.color }} />
-              {rc.label}
-            </div>
-          )}
+      <div ref={scroller} className={`min-h-0 flex-1 px-5 ${expanded ? "overflow-y-auto overscroll-contain" : ""}`}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// Resumen del municipio en la hoja recogida
+function SheetPeek({ r, fav, onFav, onExpand }: { r: Row; fav: boolean; onFav: () => void; onExpand: () => void }) {
+  const rc = recommend(r);
+  return (
+    <div className="pb-5">
+      <div className="flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-xl font-semibold tracking-tight text-ink">{r.n}</div>
+          <div className="text-sm text-muted">{r.prov}</div>
+          <div className="mt-3 text-5xl font-semibold leading-none tabular-nums tracking-tight text-ink">{r.score === null ? "—" : fmt1.format(r.score)}</div>
         </div>
-        <div className="text-right">
-          <Sparkline ps={r.ps} w={110} h={38} />
+        <div className="shrink-0 text-right">
+          <Sparkline ps={r.ps} w={120} h={44} />
           <div className="text-xs tabular-nums" style={{ color: r.g5 >= 0 ? "var(--forest)" : "var(--brick)" }}>
             {sgn(r.g5)}% en 5 años
           </div>
         </div>
       </div>
-      <dl className="mt-2">
-        <Fact label="Riesgo de okupación" value={r.okR === null ? "Sin dato" : okLevel(r.okR)} dot={okDot(r.okR)} />
-        <Fact label="Zona" value={r.zona === null ? "Sin valorar" : cap(zoneShort(r.zona).replace("Zona ", ""))} dot={zoneDot(r.zona)} />
-        <Fact label="Paro" value={r.paro === null ? "Sin dato" : `${fmt1.format(r.paro)}%`} />
-        {more && (
-          <>
-            <Fact label="Renta por persona" value={r.renta === null ? "Sin dato" : `${fmt.format(r.renta)} €`} />
-            <Fact label="Valor tasado" value={r.vt === null ? "Solo más de 25.000 hab." : `${fmt.format(r.vt)} €/m²`} />
-            <Fact label="Vivienda vacía" value={r.vac === null ? "Sin dato" : `${fmt1.format(r.vac)}%`} />
-            <Fact label="Universidad" value={r.uniKm === null ? "Ninguna cerca" : `${r.uniNear ?? "Sede"} · ${fmt1.format(r.uniKm)} km${r.uniAt ? ` (${r.uniAt})` : ""}`} />
-            <Fact label="Ciudad grande" value={r.dc === 0 ? "Lo es" : `${fmt.format(r.dc)} km (${r.cn})`} />
-            <Fact label="Mar" value={r.costa === null ? "Sin dato" : `${fmt.format(Math.round(r.costa))} km`} />
-            <Fact label="Vivienda turística" value={r.tur === null ? "Sin dato" : `${fmt1.format(r.tur)}%`} />
-            {r.pernH !== null && <Fact label="Turismo anual" value={`${fmt1.format(r.pernH)} noches por hab.`} />}
-          </>
-        )}
-      </dl>
-      {more && (pros.length > 0 || cons.length > 0) && (
-        <div className="mt-3 space-y-0.5 text-sm">
-          {pros.map((f) => (
-            <div key={f.k} className="text-ink">
-              <span className="mr-1.5 font-semibold text-forest">✓</span>
-              {f.label}
-            </div>
-          ))}
-          {cons.map((f) => (
-            <div key={f.k} className="text-ink">
-              <span className="mr-1.5 font-semibold text-brick">✕</span>
-              {f.label}
-            </div>
-          ))}
+      {rc && (
+        <div className="mt-2 flex items-center gap-2 text-sm font-semibold text-ink">
+          <span className="h-2 w-2 rounded-full" style={{ background: rc.color }} />
+          {rc.label}
         </div>
       )}
-      <div className="mt-3 flex items-center justify-between gap-3">
-        <button onClick={onFav} aria-pressed={fav} className={`text-sm font-semibold ${fav ? "text-gold" : "text-muted hover:text-ink"}`}>
-          {fav ? "★ Guardado" : "☆ Guardar"}
+      <dl className="mt-2 grid grid-cols-3 gap-x-4">
+        <Stat label="Okupación" value={r.okR === null ? "—" : okLevel(r.okR)} dot={okDot(r.okR)} />
+        <Stat label="Zona" value={r.zona === null ? "—" : cap(zoneShort(r.zona).replace("Zona ", ""))} dot={zoneDot(r.zona)} />
+        <Stat label="Paro" value={r.paro === null ? "—" : `${fmt1.format(r.paro)}%`} />
+      </dl>
+      <div className="mt-2 flex items-center gap-3">
+        <button onClick={onExpand} className="flex-1 rounded-full bg-ink py-3 text-sm font-semibold text-white hover:bg-charcoal">
+          Ver ficha
         </button>
-        {more && (
-          <button onClick={onOpen} className="text-sm font-semibold text-forest hover:text-forest-dark">
-            Ficha completa →
-          </button>
-        )}
+        <button onClick={onFav} aria-pressed={fav} aria-label={fav ? "Quitar de guardados" : "Guardar"} className={`grid h-11 w-11 place-items-center rounded-full bg-paper text-xl leading-none ${fav ? "text-gold" : "text-muted"}`}>
+          {fav ? "★" : "☆"}
+        </button>
       </div>
-      <button
-        onClick={() => setMore((x) => !x)}
-        aria-expanded={more}
-        aria-label={more ? "Mostrar menos" : "Mostrar más datos"}
-        className="mt-2 flex w-full justify-center rounded-full py-1 text-muted hover:bg-paper hover:text-ink"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={`transition ${more ? "rotate-180" : ""}`}>
-          <path d="M6 9l6 6 6-6" />
-        </svg>
-      </button>
     </div>
   );
 }
@@ -1254,19 +1304,16 @@ function MapView({
   sect: Record<string, SectInfo> | null;
   ranks: { g: Map<string, number>; total: number } | null;
 }) {
-  const [full, setFull] = useState<Row | null>(null);
+  const [expanded, setExpanded] = useState(false); // ficha completa desplegada sobre el mapa
   const focusRef = useRef(focusId); // solo se usa al abrir el mapa
   const el = useRef<HTMLDivElement>(null);
   const [picked, setPicked] = useState<Row | null>(null);
   const pickRef = useRef<Row | null>(null);
-  const [pt, setPt] = useState({ x: 0, y: 0 });
   const [box, setBox] = useState({ w: 800, h: 600 });
   const place = () => {
     const m = map.current;
     const r = pickRef.current;
     if (!m || !r) return;
-    const p = m.project([r.lon, r.lat]);
-    setPt({ x: p.x, y: p.y });
     const c = m.getContainer();
     setBox({ w: c.clientWidth, h: c.clientHeight });
   };
@@ -1294,6 +1341,11 @@ function MapView({
     m.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
     const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12 });
     m.on("load", () => {
+      // el estilo base trae el mar gris oscuro: se aclara para que el mapa se integre con la interfaz blanca
+      for (const l of m.getStyle().layers ?? []) {
+        if (l.type === "fill" && /water/.test(l.id)) m.setPaintProperty(l.id, "fill-color", "#e4eaee");
+        if (l.type === "background") m.setPaintProperty(l.id, "background-color", "#f7f7f6");
+      }
       m.addSource(SRC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       m.addLayer({
         id: "pts",
@@ -1315,9 +1367,18 @@ function MapView({
         if (r) {
           pickRef.current = r;
           setPicked(r);
-          setFull(null); // al elegir otro municipio se cierra la ficha completa y queda su tarjeta
+          setExpanded(m.getContainer().clientWidth >= 768); // en pantallas anchas se abre ya la ficha completa; en móvil, el resumen
           place();
+          // en pantallas estrechas la hoja tapa la parte baja: se sube la bolita para que siga a la vista
+          if (m.getContainer().clientWidth < 768) m.easeTo({ center: [r.lon, r.lat], offset: [0, -120] });
         }
+      });
+      // un clic en cualquier parte del mapa que no sea una bolita cierra la ficha
+      m.on("click", (e) => {
+        if (m.queryRenderedFeatures(e.point, { layers: ["pts"] }).length > 0) return;
+        pickRef.current = null;
+        setPicked(null);
+        setExpanded(false);
       });
       m.on("mousemove", "pts", (e) => {
         m.getCanvas().style.cursor = "pointer";
@@ -1337,7 +1398,8 @@ function MapView({
       if (fr) {
         pickRef.current = fr;
         setPicked(fr);
-        m.jumpTo({ center: [fr.lon, fr.lat], zoom: 7 });
+        setExpanded(m.getContainer().clientWidth >= 768);
+        m.easeTo({ center: [fr.lon, fr.lat], zoom: 7, duration: 0, offset: m.getContainer().clientWidth < 768 ? [0, -120] : [0, 0] });
         place();
       }
     });
@@ -1349,45 +1411,32 @@ function MapView({
     };
   }, []);
   useEffect(push, [rows]);
+  const narrow = box.w < 768; // en móvil la hoja empieza recogida (resumen); en pantallas anchas, con la ficha completa
+  const close = () => {
+    pickRef.current = null;
+    setPicked(null);
+    setExpanded(false);
+  };
   return (
-    <div className="relative h-[calc(100dvh-57px)]">
+    <div className="relative h-dvh">
       <div ref={el} style={{ position: "absolute", inset: 0 }} />
       {picked && (
-        <MapCard
-          key={picked.id}
-          r={picked}
-          pt={pt}
-          box={box}
-          data={data}
-          hist={hist}
-          fav={favs.includes(picked.id)}
-          onFav={() => onFav(picked.id)}
-          onOpen={() => setFull(picked)}
-          onClose={() => {
-            pickRef.current = null;
-            setPicked(null);
-            setFull(null); // cerrar la tarjeta cierra también la ficha completa
-          }}
-        />
-      )}
-      {full && (
-        <aside className="absolute inset-y-0 right-0 z-20 w-full overflow-y-auto bg-white px-5 shadow-[-6px_0_28px_rgba(0,0,0,0.14)] md:w-[560px]">
-          <Ficha
-            key={full.id}
-            sel={full}
-            data={data}
-            sect={sect}
-            rank={ranks?.g.get(full.id)}
-            total={ranks?.total ?? 0}
-            hist={hist}
-            fav={favs.includes(full.id)}
-            onFav={() => onFav(full.id)}
-            onBack={() => setFull(null)}
-            backLabel="Cerrar"
-            onMap={() => setFull(null)}
-            mapLabel="Volver al mapa"
-          />
-        </aside>
+        <Sheet key={picked.id} expanded={expanded} onExpand={() => setExpanded(true)} onDown={() => (expanded && narrow ? setExpanded(false) : close())}>
+          {expanded ? (
+            <Ficha
+              sel={picked}
+              data={data}
+              sect={sect}
+              rank={ranks?.g.get(picked.id)}
+              total={ranks?.total ?? 0}
+              hist={hist}
+              fav={favs.includes(picked.id)}
+              onFav={() => onFav(picked.id)}
+            />
+          ) : (
+            <SheetPeek r={picked} fav={favs.includes(picked.id)} onFav={() => onFav(picked.id)} onExpand={() => setExpanded(true)} />
+          )}
+        </Sheet>
       )}
       <div className="absolute bottom-8 left-3 bg-white/90 px-3 py-2 backdrop-blur">
         <div className="mb-1 text-xs font-semibold text-ink">Índice de crecimiento</div>
@@ -1425,11 +1474,15 @@ function applyFilters(rows: Row[], f: Filters, sort: SortKey, favOnly: string[] 
     if (f.minInv !== null && (r.inv === null || r.inv < f.minInv)) continue;
     if (f.minRenta !== null && (r.renta === null || r.renta < f.minRenta)) continue;
     if (f.maxPob !== null && (r.pob === null || r.pob > f.maxPob)) continue;
-    if (f.maxVt !== null && (r.vt === null || r.vt > f.maxVt)) continue;
+    if (f.maxVt !== null) {
+      const pr = r.vtE ?? r.vt;
+      if (pr === null || pr > f.maxVt) continue;
+    }
     if (f.near !== null && r.dc > f.near) continue;
     if (f.maxCosta !== null && (r.costa === null || r.costa > f.maxCosta)) continue;
     if (f.minTur !== null && (r.tur === null || r.tur < f.minTur)) continue;
     if (f.maxUniKm !== null && (r.uniKm === null || r.uniKm > f.maxUniKm)) continue;
+    if (f.minUni !== null && (r.sUni === null || r.sUni < f.minUni)) continue;
     if (favOnly && !favOnly.includes(r.id)) continue;
     out.push(r);
   }
@@ -1438,6 +1491,8 @@ function applyFilters(rows: Row[], f: Filters, sort: SortKey, favOnly: string[] 
     fut: (r) => r.fut ?? -1,
     ok: (r) => -(r.okR ?? 999),
     g5: (r) => r.g5,
+    // alquiler a estudiantes: manda la universidad (tamaño y cercanía); después el crecimiento y el poco riesgo de okupación
+    est: (r) => 0.6 * (r.sUni ?? 0) + 0.25 * (r.score ?? 0) + 0.15 * (100 - (r.okR ?? 50)),
   };
   return out.sort((a, b) => key[sort](b) - key[sort](a) || (b.score ?? 0) - (a.score ?? 0));
 }
@@ -1451,6 +1506,8 @@ export default function Explorer() {
   const set = (p: Partial<Filters>) => setF((cur) => ({ ...cur, ...p }));
   const [sort, setSort] = useState<SortKey>("score");
   const [showFilters, setShowFilters] = useState(false);
+  const [priceTxt, setPriceTxt] = useState(""); // precio máximo escrito a mano en los filtros
+  const [pickList, setPickList] = useState(false); // selector de lista (hoja con las opciones)
   const [preset, setPreset] = useState(PRESETS[0].id);
   const [limit, setLimit] = useState(10);
   const [q, setQ] = useState("");
@@ -1510,7 +1567,14 @@ export default function Explorer() {
           if (!r.ok) throw new Error(String(r.status));
           return r.json();
         })
-        .then((d: Data) => !cancelled && setData(d))
+        .then((d: Data) => {
+          if (cancelled) return;
+          for (const r of d.rows) {
+            const vp = d.vtProv?.[r.id.slice(0, 2)];
+            r.vtE = r.vt ?? (vp && vp.length > 0 ? vp[vp.length - 1][1] : null);
+          }
+          setData(d);
+        })
         .catch(() => {
           if (!cancelled && attempt < 6) setTimeout(() => load(attempt + 1), 1000);
         });
@@ -1557,6 +1621,7 @@ export default function Explorer() {
     setF({ ...DEFAULTS, ...p.f });
     setSort(p.sort ?? "score");
     setShowFilters(false);
+    setPriceTxt("");
     setLimit(10);
   };
   const open = (r: Row) => go({ k: "detail", id: r.id });
@@ -1571,7 +1636,6 @@ export default function Explorer() {
 
   const base: Filters = { ...DEFAULTS, ...(listPreset?.f ?? {}) };
   const activeCount = (Object.keys(DEFAULTS) as (keyof Filters)[]).filter((k) => k !== "q" && f[k] !== base[k]).length;
-  const reset = (keys: (keyof Filters)[]) => setF((cur) => ({ ...cur, ...Object.fromEntries(keys.map((k) => [k, base[k]])) }));
   const prevView = stack.length > 1 ? stack[stack.length - 2] : null;
   const backLabel =
     prevView?.k === "home" ? (q.trim() ? "Resultados" : listPreset.label) : prevView?.k === "list" ? (PRESETS.find((p) => p.id === prevView.preset)?.label ?? "Lista") : prevView?.k === "fav" ? "Guardados" : prevView?.k === "map" ? "Mapa" : prevView?.k === "compare" ? "Comparar" : "Inicio";
@@ -1580,244 +1644,134 @@ export default function Explorer() {
   const [mapMenu, setMapMenu] = useState(false); // en pantallas táctiles no hay "pasar el cursor": se abre con un toque
   const mapRows = mapFocus && !listed.some((r) => r.id === mapFocus) ? [...listed, ...(data?.rows.filter((r) => r.id === mapFocus) ?? [])] : listed;
 
-  const popOpts: [string, string][] = [1000, 2000, 5000, 10000, 25000, 50000].map((v) => [String(v), `${fmt.format(v)} hab.`]);
-  const opts = (vals: number[], fmtv: (v: number) => string): [string, string][] => [["", "Cualquiera"], ...vals.map((v): [string, string] => [String(v), fmtv(v)])];
-
-  const panelBody = (id: string) => {
-    switch (id) {
-      case "ambito":
-        return (
-          <>
-            <Sel
-              label="Comunidad autónoma"
-              value={f.ccaa}
-              onChange={(v) => set({ ccaa: v, prov: places.provs.find((p) => p.name === f.prov && (!v || p.ccaa === v)) ? f.prov : "" })}
-              options={[["", "Toda España"], ...places.ccaas.map((c): [string, string] => [c, c])]}
-            />
-            <Sel
-              label="Provincia"
-              value={f.prov}
-              onChange={(v) => set({ prov: v })}
-              options={[["", f.ccaa ? `Toda ${f.ccaa}` : "Todas"], ...places.provs.filter((p) => !f.ccaa || p.ccaa === f.ccaa).map((p): [string, string] => [p.name, p.name])]}
-            />
-          </>
-        );
-      case "tamano":
-        return (
-          <>
-            <Sel label="Población mínima" value={String(f.minPop)} onChange={(v) => set({ minPop: Number(v) })} options={popOpts} />
-            <Sel
-              label="Población máxima"
-              value={String(f.maxPop)}
-              onChange={(v) => set({ maxPop: Number(v) })}
-              options={[["0", "Sin límite"], ...[10000, 25000, 50000, 100000].map((v): [string, string] => [String(v), `${fmt.format(v)} hab.`])]}
-              note="Útil para descartar grandes ciudades y buscar pueblos medianos."
-            />
-          </>
-        );
-      case "crec":
-        return (
-          <>
-            <Sel
-              label="Población en los últimos 5 años"
-              value={optNum(f.minG5)}
-              onChange={(v) => set({ minG5: numOrNull(v) })}
-              options={opts([0, 5, 10, 20], (v) => `Crece al menos ${v} %`)}
-            />
-            <Sel
-              label="Obra nueva reciente (viviendas por 1.000 hab. en 5 años)"
-              value={optNum(f.minViv)}
-              onChange={(v) => set({ minViv: numOrNull(v) })}
-              options={opts([10, 20, 40], (v) => `Al menos ${v}`)}
-            />
-            <div className="sm:col-span-2">
-              <div className="flex items-baseline justify-between text-sm font-semibold">
-                <span>Puntuación del índice entre</span>
-                <span className="tabular-nums">
-                  {f.minScore} y {f.maxScore}
-                </span>
-              </div>
-              <div className="mt-1 grid grid-cols-2 gap-3">
-                <label className="text-xs text-muted">
-                  Mínimo
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={f.minScore}
-                    onChange={(e) => {
-                      const v = +e.target.value;
-                      set({ minScore: v, maxScore: Math.max(v, f.maxScore) });
-                    }}
-                    className="mt-0.5 h-2 w-full cursor-pointer accent-forest"
-                  />
-                </label>
-                <label className="text-xs text-muted">
-                  Máximo
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={f.maxScore}
-                    onChange={(e) => {
-                      const v = +e.target.value;
-                      set({ maxScore: v, minScore: Math.min(v, f.minScore) });
-                    }}
-                    className="mt-0.5 h-2 w-full cursor-pointer accent-forest"
-                  />
-                </label>
-              </div>
-            </div>
-            <div className="sm:col-span-2">
-              <div className="flex items-baseline justify-between text-sm font-semibold">
-                <span>Perspectivas de futuro mínimas</span>
-                <span className="tabular-nums">{f.minFut}</span>
-              </div>
+  // Filtros: pocas preguntas, las que decide un inversor (dónde, cuánto, tamaño, riesgo y cercanía), todas con pastillas
+  const sizeIs = (lo: number, hi: number) => f.minPop === lo && f.maxPop === hi;
+  // las pastillas se desmarcan al volver a tocarlas (sin opción "Cualquiera")
+  const size = (lo: number, hi: number) => set(sizeIs(lo, hi) ? { minPop: base.minPop, maxPop: base.maxPop } : { minPop: lo, maxPop: hi });
+  const filterDialog = showFilters && (
+    <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="dialog" aria-label="Filtros">
+      <button aria-label="Cerrar" onClick={() => setShowFilters(false)} className="absolute inset-0 bg-black/40" />
+      <div className="sheet-in relative flex max-h-[88dvh] w-full max-w-md flex-col rounded-t-3xl bg-white md:rounded-3xl">
+        <div className="mx-auto mt-3 h-1.5 w-10 shrink-0 rounded-full bg-edge md:hidden" />
+        <div className="flex shrink-0 items-center justify-between px-5 pb-1 pt-4">
+          <h2 className="text-xl font-semibold tracking-tight">Filtros</h2>
+          {(activeCount > 0 || sort !== (listPreset.sort ?? "score")) && (
+            <button
+              onClick={() => {
+                setF({ ...base });
+                setPriceTxt("");
+                setSort(listPreset.sort ?? "score");
+              }}
+              className="text-sm font-semibold text-forest"
+            >
+              Borrar
+            </button>
+          )}
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5">
+          <FilterRow label="Dónde">
+            <select
+              className="h-10 w-full rounded-full bg-paper px-4 text-sm font-medium text-ink"
+              value={f.prov ? `p:${f.prov}` : f.ccaa ? `c:${f.ccaa}` : ""}
+              onChange={(e) => {
+                const v = e.target.value;
+                set({ ccaa: v.startsWith("c:") ? v.slice(2) : "", prov: v.startsWith("p:") ? v.slice(2) : "" });
+              }}
+            >
+              <option value="">Toda España</option>
+              <optgroup label="Comunidades">
+                {places.ccaas.map((c) => (
+                  <option key={c} value={`c:${c}`}>
+                    {c}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Provincias">
+                {places.provs.map((x) => (
+                  <option key={x.name} value={`p:${x.name}`}>
+                    {x.name}
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+          </FilterRow>
+          <FilterRow label="Precio máximo por m²">
+            {[1500, 2500, 4000].map((v) => (
+              <Chip
+                key={v}
+                on={f.maxVt === v && priceTxt === ""}
+                onClick={() => {
+                  setPriceTxt("");
+                  set({ maxVt: f.maxVt === v && priceTxt === "" ? null : v });
+                }}
+              >
+                {fmt.format(v)} €
+              </Chip>
+            ))}
+            <label className={`flex items-center gap-1 rounded-full px-3.5 py-2 text-sm font-medium ${priceTxt ? "bg-ink text-white" : "bg-paper text-ink"}`}>
               <input
-                type="range"
+                type="number"
+                inputMode="numeric"
                 min={0}
-                max={100}
-                value={f.minFut}
-                onChange={(e) => set({ minFut: +e.target.value })}
-                className="mt-1 h-2 w-full cursor-pointer accent-forest"
+                step={100}
+                placeholder="Otro"
+                aria-label="Precio máximo por metro cuadrado, en euros"
+                value={priceTxt}
+                onChange={(e) => {
+                  const t = e.target.value;
+                  setPriceTxt(t);
+                  set({ maxVt: t && Number(t) > 0 ? Number(t) : null });
+                }}
+                className={`w-14 bg-transparent outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none ${priceTxt ? "placeholder:text-white/60" : "placeholder:text-muted"}`}
               />
-              <p className="mt-1 text-xs font-normal text-muted">
-                El futuro ya cuenta un 22 % del índice; aquí puedes exigir además un mínimo propio (planeamiento, obra nueva y suelo de actividad).
-              </p>
-            </div>
-          </>
-        );
-      case "plan":
-        return (
-          <>
-            <Sel
-              label="Viviendas previstas aún por construir (por 1.000 hab.)"
-              value={optNum(f.minPend)}
-              onChange={(v) => set({ minPend: numOrNull(v) })}
-              options={opts([100, 300, 600, 1000], (v) => `Al menos ${fmt.format(v)}`)}
-              note="Planes sobre el papel del SIU: muchos son antiguos y no se construirán."
-            />
-            <Sel
-              label="Inversión pública municipal (€ por habitante)"
-              value={optNum(f.minInv)}
-              onChange={(v) => set({ minInv: numOrNull(v) })}
-              options={opts([100, 200, 400], (v) => `Al menos ${v} €`)}
-              note="Media 2019/2024 del capítulo 6 (Hacienda)."
-            />
-          </>
-        );
-      case "zona":
-        return (
-          <>
-            <Sel
-              label="Veredicto orientativo"
-              value={String(f.minRec)}
-              onChange={(v) => set({ minRec: Number(v) })}
-              options={[["0", "Cualquiera"], ["1", "Quitar los descartados"], ["2", "A estudiar o mejor"], ["3", "Solo buenas candidatas"]]}
-              note="Cruza crecimiento, zona y riesgo de okupación. Una buena candidata exige zona verificada (más de 20.000 hab.)."
-            />
-            <Sel
-              label="Riesgo de okupación (estimado)"
-              value={optNum(f.maxOk)}
-              onChange={(v) => set({ maxOk: numOrNull(v) })}
-              options={opts([40, 60, 75], (v) => (v === 40 ? "Solo bajo" : v === 60 ? "Bajo o medio" : "Quitar solo el alto"))}
-            />
-            <Sel
-              label="Valoración de la zona"
-              value={String(f.zone)}
-              onChange={(v) => set({ zone: Number(v) })}
-              options={[["0", "Cualquiera"], ["40", "Buena o media (valorada)"], ["60", "Solo buena (valorada)"]]}
-              note="Solo se valora con seguridad municipal (más de 20.000 hab.): el resto queda fuera."
-            />
-            <Sel
-              label="Renta neta mínima por persona"
-              value={optNum(f.minRenta)}
-              onChange={(v) => set({ minRenta: numOrNull(v) })}
-              options={opts([12000, 14000, 16000, 20000], (v) => `Al menos ${fmt.format(v)} €`)}
-            />
-            <Sel
-              label="Pobreza máxima (% con ingresos bajo el 60 % de la mediana)"
-              value={optNum(f.maxPob)}
-              onChange={(v) => set({ maxPob: numOrNull(v) })}
-              options={opts([10, 15, 20], (v) => `Hasta el ${v} %`)}
-            />
-          </>
-        );
-      case "precio":
-        return (
-          <Sel
-            label="Valor tasado máximo de la vivienda (€/m²)"
-            value={optNum(f.maxVt)}
-            onChange={(v) => set({ maxVt: numOrNull(v) })}
-            options={opts([1500, 2000, 3000, 4000], (v) => `Hasta ${fmt.format(v)} €/m²`)}
-            note="Solo existe en municipios de más de 25.000 hab.: al activarlo, el resto queda fuera."
-          />
-        );
-      case "cerca":
-        return (
-          <>
-            <Sel
-              label="Distancia máxima a una ciudad de más de 100.000 hab."
-              value={optNum(f.near)}
-              onChange={(v) => set({ near: numOrNull(v) })}
-              options={opts([15, 30, 50], (v) => `Menos de ${v} km`)}
-              note="Distancia estimada por carretera. Útil para zonas dormitorio."
-            />
-            <Sel
-              label="Distancia máxima a una universidad"
-              value={optNum(f.maxUniKm)}
-              onChange={(v) => set({ maxUniKm: numOrNull(v) })}
-              options={opts([2, 5, 15, 30], (v) => `Menos de ${v} km`)}
-            />
-            <Sel
-              label="Vivienda turística mínima"
-              value={optNum(f.minTur)}
-              onChange={(v) => set({ minTur: numOrNull(v) })}
-              options={opts([2, 5, 10], (v) => `Al menos el ${v} %`)}
-              note="Porcentaje de viviendas de uso turístico (INE)."
-            />
-            <Sel
-              label="Distancia máxima al mar"
-              value={optNum(f.maxCosta)}
-              onChange={(v) => set({ maxCosta: numOrNull(v) })}
-              options={opts([2, 10, 30], (v) => `Menos de ${v} km`)}
-            />
-          </>
-        );
-      default:
-        return (
-          <div className="space-y-2 sm:col-span-2">
-            <label className="flex cursor-pointer items-center gap-2 text-[15px] font-medium">
-              <input type="checkbox" className="h-4 w-4 accent-forest" checked={f.onlyUni} onChange={(e) => set({ onlyUni: e.target.checked })} />
-              Con universidad
+              €
             </label>
-            <label className="flex cursor-pointer items-center gap-2 text-[15px] font-medium">
-              <input type="checkbox" className="h-4 w-4 accent-forest" checked={f.onlyProj} onChange={(e) => set({ onlyProj: e.target.checked })} />
-              Con proyectos previstos (ignora el tamaño mínimo)
-            </label>
-          </div>
-        );
-    }
-  };
-
-
-  const filterForm = (
-    <>
-                  {SECTIONS.map((sec) => (
-                    <section key={sec.id} className="mb-6">
-                      <div className="mb-2 flex items-baseline justify-between">
-                        <h3 className="text-sm font-semibold text-ink">{sec.title}</h3>
-                        {sectionCount(f, sec.keys) > 0 && (
-                          <button className="text-xs text-muted underline" onClick={() => reset(sec.keys)}>
-                            Restablecer
-                          </button>
-                        )}
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-2">{panelBody(sec.id)}</div>
-                    </section>
-                  ))}
-                  <p className="text-xs text-muted">Los municipios sin el dato que pide un filtro quedan fuera: preferimos descartar a dar falsos positivos.</p>
-    </>
+          </FilterRow>
+          <FilterRow label="Tamaño">
+            <Chip on={sizeIs(2000, 10000)} onClick={() => size(2000, 10000)}>
+              Pueblo
+            </Chip>
+            <Chip on={sizeIs(10000, 50000)} onClick={() => size(10000, 50000)}>
+              Ciudad pequeña
+            </Chip>
+            <Chip on={sizeIs(50000, 0)} onClick={() => size(50000, 0)}>
+              Ciudad
+            </Chip>
+          </FilterRow>
+          <FilterRow label="Riesgo de okupación">
+            <Chip on={f.maxOk === 40} onClick={() => set({ maxOk: f.maxOk === 40 ? null : 40 })}>
+              Solo bajo
+            </Chip>
+            <Chip on={f.maxOk === 60} onClick={() => set({ maxOk: f.maxOk === 60 ? null : 60 })}>
+              Bajo o medio
+            </Chip>
+          </FilterRow>
+          <FilterRow label="Cerca de">
+            <Chip on={f.maxCosta !== null} onClick={() => set({ maxCosta: f.maxCosta === null ? 10 : null })}>
+              Mar
+            </Chip>
+            <Chip on={f.minUni !== null} onClick={() => set({ minUni: f.minUni === null ? 25 : null })}>
+              Universidad
+            </Chip>
+            <Chip on={f.near !== null} onClick={() => set({ near: f.near === null ? 30 : null })}>
+              Ciudad grande
+            </Chip>
+          </FilterRow>
+          <FilterRow label="Ordenar por">
+            {(listPreset.sort === "est" ? [["est", "Universidad"] as [SortKey, string], ...SORTS] : SORTS).map(([k, t]) => (
+              <Chip key={k} on={sort === k} onClick={() => setSort(k)}>
+                {t}
+              </Chip>
+            ))}
+          </FilterRow>
+        </div>
+        <div className="shrink-0 px-5 pb-5 pt-3">
+          <button onClick={() => setShowFilters(false)} className="w-full rounded-full bg-ink py-3 text-[15px] font-semibold text-white hover:bg-charcoal">
+            {listed.length === 0 ? "Ningún municipio" : `Ver ${fmt.format(listed.length)} ${listed.length === 1 ? "municipio" : "municipios"}`}
+          </button>
+        </div>
+      </div>
+    </div>
   );
   const loading = <p className="py-16 text-center text-muted">Cargando datos de 8.131 municipios…</p>;
   const rowsOf = (rows: Row[], n: number, ranked = false) => (
@@ -1831,13 +1785,13 @@ export default function Explorer() {
 
   return (
     <div className="min-h-dvh bg-white text-ink">
-      <header className="sticky top-0 z-30 border-b border-black/40 bg-charcoal">
+      <header className={`sticky top-0 z-30 border-b ${view.k === "map" ? "border-transparent bg-white/70 backdrop-blur-md" : "border-line bg-white"}`}>
         <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-2.5">
-          <button onClick={home} className="shrink-0 text-xl font-bold leading-none tracking-tight text-gold hover:text-white" title="Ir al inicio">
+          <button onClick={home} className="shrink-0 text-xl font-bold leading-none tracking-tight text-ink hover:text-forest" title="Ir al inicio">
             Inmo Growth
           </button>
           <input
-            className="h-9 min-w-0 flex-1 rounded-full border border-transparent bg-white/95 px-4 text-sm text-ink placeholder:text-muted focus:border-gold focus:outline-none"
+            className="h-9 min-w-0 flex-1 rounded-full border border-transparent bg-paper px-4 text-sm text-ink placeholder:text-muted focus:border-ink focus:outline-none"
             placeholder="Buscar municipio…"
             value={q}
             onChange={(e) => {
@@ -1845,12 +1799,12 @@ export default function Explorer() {
               if (view.k !== "home") setStack([{ k: "home" }]);
             }}
           />
-          <button onClick={() => go({ k: "fav" })} aria-label={`Guardados (${favs.length})`} className="shrink-0 whitespace-nowrap text-sm font-semibold text-paper/80 hover:text-white">
+          <button onClick={() => go({ k: "fav" })} aria-label={`Guardados (${favs.length})`} className="shrink-0 whitespace-nowrap text-sm font-semibold text-ink hover:text-forest">
             ★<span className="hidden sm:inline"> Guardados</span> {favs.length > 0 ? favs.length : ""}
           </button>
           <button
             onClick={() => (view.k === "map" ? back() : go({ k: "map" }))}
-            className={`shrink-0 whitespace-nowrap text-sm font-semibold ${view.k === "map" ? "text-gold" : "text-paper/80 hover:text-white"}`}
+            className={`shrink-0 whitespace-nowrap text-sm font-semibold ${view.k === "map" ? "text-forest" : "text-ink hover:text-forest"}`}
           >
             {view.k === "map" ? "Cerrar" : "Mapa"}
           </button>
@@ -1858,10 +1812,10 @@ export default function Explorer() {
       </header>
 
       {view.k === "map" ? (
-        <div className="relative">
+        <div className="relative -mt-[57px]">
           <MapView rows={mapRows} focusId={mapFocus} favs={favs} onFav={toggleFav} data={data} hist={hist} sect={sect} ranks={ranks} />
           <div
-            className="group absolute left-3 top-3 z-10 max-w-[min(28rem,calc(100%-4.5rem))]"
+            className="group absolute left-3 top-[69px] z-10 max-w-[min(28rem,calc(100%-4.5rem))]"
             onMouseLeave={() => setMapMenu(false)}
           >
             <div className="flex flex-wrap items-center gap-1.5">
@@ -1928,26 +1882,16 @@ export default function Explorer() {
                 </button>
               </div>
               <h1 className="text-3xl font-semibold tracking-tight">{view.k === "fav" ? "Guardados" : listPreset?.label}</h1>
-              <p className="mt-1 text-muted">{view.k === "fav" ? "Los municipios que has marcado con la estrella, en este navegador." : listPreset?.hint}</p>
-              <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-line pb-3 text-sm">
-                <span className="text-muted">
+              <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 pb-1 text-sm">
+                <span className="flex items-center gap-1.5 text-muted">
                   <b className="text-ink">{fmt.format(listed.length)}</b> municipios
+                  <Info>{view.k === "fav" ? "Los municipios que has marcado con la estrella, en este navegador." : listPreset?.hint}</Info>
                 </span>
                 {view.k === "list" && (
                   <>
                     <button onClick={() => setShowFilters((x) => !x)} aria-expanded={showFilters} className="font-semibold text-forest">
                       {showFilters ? "Ocultar filtros" : `Filtros${activeCount > 0 ? ` (${activeCount})` : ""}`}
                     </button>
-                    <label className="flex items-center gap-1.5 text-muted">
-                      Orden
-                      <select className="bg-transparent font-semibold text-ink" value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
-                        {SORTS.map(([k, t]) => (
-                          <option key={k} value={k}>
-                            {t}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
                   </>
                 )}
                 {view.k === "fav" && favs.length >= 2 && (
@@ -1956,24 +1900,7 @@ export default function Explorer() {
                   </button>
                 )}
               </div>
-              {showFilters && view.k === "list" && (
-                <div className="border-b border-line py-4">
-                  {SECTIONS.map((sec) => (
-                    <section key={sec.id} className="mb-6">
-                      <div className="mb-2 flex items-baseline justify-between">
-                        <h3 className="text-sm font-semibold text-ink">{sec.title}</h3>
-                        {sectionCount(f, sec.keys) > 0 && (
-                          <button className="text-xs text-muted underline" onClick={() => reset(sec.keys)}>
-                            Restablecer
-                          </button>
-                        )}
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-2">{panelBody(sec.id)}</div>
-                    </section>
-                  ))}
-                  <p className="text-xs text-muted">Los municipios sin el dato que pide un filtro quedan fuera: preferimos descartar a dar falsos positivos.</p>
-                </div>
-              )}
+              {view.k === "list" && filterDialog}
               {listed.length === 0 ? (
                 <p className="py-10 text-center text-muted">{view.k === "fav" ? "Aún no has guardado ningún municipio." : "Ningún municipio cumple los filtros."}</p>
               ) : (
@@ -1993,40 +1920,61 @@ export default function Explorer() {
               {rowsOf(searchHits, 40)}
             </div>
           ) : (
-            <div className="pb-16 pt-8">
-              <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">Dónde crece España</h1>
-              <div className="mt-4 flex flex-wrap gap-2">
-                {PRESETS.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => choose(p.id)}
-                    aria-pressed={p.id === preset}
-                    className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition ${p.id === preset ? "bg-ink text-white" : "bg-paper text-ink hover:bg-tint"}`}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-              <p className="mt-3 text-sm text-muted">{listPreset.hint}</p>
-              <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-line pb-3 text-sm">
-                <span className="text-muted">
-                  <b className="text-ink">{fmt.format(listed.length)}</b> municipios
-                </span>
-                <button onClick={() => setShowFilters((x) => !x)} aria-expanded={showFilters} className="font-semibold text-forest">
-                  {showFilters ? "Ocultar filtros" : `Filtros${activeCount > 0 ? ` (${activeCount})` : ""}`}
+            <div className="pb-16 pt-7">
+              <h1 className="text-3xl font-semibold leading-tight tracking-tight md:text-4xl">Dónde invertir en vivienda</h1>
+              <p className="mt-1.5 text-[15px] text-muted">Los municipios de España con más crecimiento</p>
+              <div className="mt-6 flex items-center gap-2">
+                <button
+                  onClick={() => setPickList(true)}
+                  aria-haspopup="dialog"
+                  className="flex min-w-0 items-center gap-2 rounded-full bg-ink py-2 pl-4 pr-3 text-[15px] font-semibold text-white hover:bg-charcoal"
+                >
+                  <span className="truncate">{listPreset.label}</span>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
                 </button>
-                <label className="flex items-center gap-1.5 text-muted">
-                  Orden
-                  <select className="bg-transparent font-semibold text-ink" value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
-                    {SORTS.map(([k, t]) => (
-                      <option key={k} value={k}>
-                        {t}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <button
+                  onClick={() => setShowFilters((x) => !x)}
+                  aria-haspopup="dialog"
+                  className={`shrink-0 rounded-full px-4 py-2 text-[15px] font-semibold ${activeCount > 0 ? "bg-tint text-forest-dark" : "bg-paper text-ink hover:bg-tint"}`}
+                >
+                  Filtros{activeCount > 0 ? ` · ${activeCount}` : ""}
+                </button>
+                <span className="ml-auto flex shrink-0 items-center gap-1.5 text-sm tabular-nums text-muted">
+                  {fmt.format(listed.length)}
+                  <Info>
+                    {fmt.format(listed.length)} municipios. {listPreset.hint}
+                  </Info>
+                </span>
               </div>
-              {showFilters && <div className="border-b border-line py-4">{filterForm}</div>}
+              {pickList && (
+                <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="dialog" aria-label="Elegir lista">
+                  <button aria-label="Cerrar" onClick={() => setPickList(false)} className="absolute inset-0 bg-black/40" />
+                  <div className="sheet-in relative max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white px-2 pb-6 pt-3 md:rounded-3xl md:pb-3">
+                    <div className="mx-auto mb-2 h-1.5 w-10 rounded-full bg-edge md:hidden" />
+                    {PRESETS.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => {
+                          choose(p.id);
+                          setPickList(false);
+                        }}
+                        aria-pressed={p.id === preset}
+                        className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left hover:bg-paper"
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-base font-semibold text-ink">{p.label}</span>
+                          <span className="block text-[13px] leading-snug text-muted">{p.hint}</span>
+                        </span>
+                        {p.id === preset && <span className="shrink-0 text-lg font-semibold text-forest">✓</span>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {filterDialog}
+              <div className="mt-3" />
               {listed.length === 0 ? (
                 <p className="py-10 text-center text-muted">Ningún municipio cumple los filtros.</p>
               ) : (

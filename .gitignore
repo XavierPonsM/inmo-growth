@@ -52,3 +52,6 @@ next-env.d.ts
 
 # informes de IA guardados en local
 .cache
+
+# libro original del alquiler (71 MB): se descarga con scripts/process_alquiler.py
+/data/raw/alquiler/

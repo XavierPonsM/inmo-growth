@@ -66,7 +66,7 @@ python3 scripts/build_dataset.py        # genera public/municipios.json
 ```
 
 Cada fuente tiene su script en `scripts/` (descarga y procesado): `fetch_osm.py`, `fetch_osm_hist.py`, `process_osm.py`, `process_gasto.py`,
-`process_uni.py`, `process_suelo.py`, `process_tasado.py`, `process_futuro.py`, `process_siu.py`, `process_sectores.py`, `fetch_edad.py`, `process_vacias.py`, `process_turismo.py`, `process_oat.py`, `process_tasado_prov.py`, `process_cgpj.py`, `process_serie.py`, `process_paro.py`, `process_costa.py`, `fetch_renta.py` y
+`process_uni.py`, `process_suelo.py`, `process_tasado.py`, `process_futuro.py`, `process_siu.py`, `process_sectores.py`, `fetch_edad.py`, `process_vacias.py`, `process_turismo.py`, `process_oat.py`, `process_tasado_prov.py`, `process_alquiler.py`, `process_cgpj.py`, `process_serie.py`, `process_paro.py`, `process_costa.py`, `fetch_renta.py` y
 `process_seguridad.py`. La cabecera de cada uno explica de dónde descarga y qué genera. Los proyectos concretos están en
 `data/curated/proyectos.json` (cada entrada necesita código INE, nombre, tipo, estado y una URL).
 

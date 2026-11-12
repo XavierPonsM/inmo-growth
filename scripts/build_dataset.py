@@ -118,6 +118,33 @@ for r in rows:
     r["vtS"] = sorted(_vts[r["id"]]) if r["id"] in _vts and len(_vts[r["id"]]) >= 3 else None  # [año, €/m²] para la gráfica
     r["vtN"] = int(t["tasaciones"]) if t else None  # nº de tasaciones en los últimos 4 trimestres
 
+# Alquiler: mediana de €/m² al mes y de la renta mensual por municipio (Ministerio de Vivienda, SERPAVI; IRPF + Catastro). Sin País Vasco ni Navarra.
+import datetime
+ALQ_NOW = datetime.date.today().year
+_alq = {}
+for _t in csv.DictReader(open(ROOT / "data/raw/alquiler_mun.csv")):
+    _alq.setdefault(_t["ine"], []).append((int(_t["anyo"]), float(_t["eur_m2_mes"]), int(_t["renta_mes"]) if _t["renta_mes"] else None))
+for r in rows:
+    a = sorted(_alq.get(r["id"], []))
+    last = a[-1] if a and a[-1][0] >= 2022 else None  # un dato de hace muchos años no sirve como precio actual
+    r["alq"] = last[1] if last else None            # €/m² al mes
+    r["alqR"] = last[2] if last else None           # renta mensual mediana (€)
+    r["alqY"] = last[0] if last else None
+    ago = next((x for x in a if last and x[0] == last[0] - 5), None)
+    r["alqG"] = round((last[1] / ago[1] - 1) * 100) if last and ago else None  # % en 5 años
+    ser = [[y, v] for y, v, _ in a if y >= 2015]
+    r["alqS"] = ser if last and len(ser) >= 3 else None
+    # El último dato oficial va con dos años de retraso: se lleva a hoy con el ritmo anual de sus tres últimos años (entre 0 % y 8 %).
+    # Es una ESTIMACIÓN y la app la marca como tal ("≈"); la serie de la gráfica sigue siendo la oficial.
+    prev = next((x for x in a if last and x[0] == last[0] - 3), None)
+    rate = min(0.08, max(0.0, (last[1] / prev[1]) ** (1 / 3) - 1)) if last and prev else 0.04
+    k = (1 + rate) ** (ALQ_NOW - last[0]) if last else None
+    r["alqE"] = round(last[1] * k, 2) if last else None                       # €/m² al mes estimado hoy
+    r["alqRE"] = int(round(last[2] * k, -1)) if last and last[2] else None    # renta mensual estimada hoy
+    r["alqK"] = round(rate * 100, 1) if last else None                        # ritmo anual aplicado (%)
+    # Rentabilidad bruta orientativa: alquiler anual estimado hoy / valor tasado (solo donde hay valor tasado municipal)
+    r["rb"] = round(r["alqE"] * 12 / r["vt"] * 100, 1) if last and r["vt"] else None
+
 # Futuro: proyección INE por provincia + suelo disponible y obra nueva (Catastro, 2021 vs 2026; no cubre País Vasco ni Navarra)
 proy = {r["prov"]: r for r in csv.DictReader(open(ROOT / "data/raw/proyeccion_prov.csv"))}
 cat = {r["ine"]: r for r in csv.DictReader(open(ROOT / "data/raw/catastro_futuro.csv"))}

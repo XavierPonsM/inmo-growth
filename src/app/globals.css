@@ -1,23 +1,23 @@
 @import "tailwindcss";
 
 /*
- * Estética tomada del plan de negocio (business-plan.docx): papel cálido, verde bosque como color principal,
- * dorado para destacar, tinta casi negra y gris cálido; todo en sans (fuente del sistema), sin serif.
+ * Paleta "Tinta": blanco y negro, con el verde reservado para los datos (subidas, veredictos, enlaces);
+ * dorado solo para guardados y avisos intermedios; todo en sans (fuente del sistema).
  */
 :root {
-  --paper: #f7f4ee; /* fondo */
-  --line: #e8e3d9; /* divisores y bordes suaves */
-  --edge: #d8d1c2; /* bordes de controles y tarjetas */
-  --tint: #e5efe8; /* verde muy pálido: filas destacadas, hover */
-  --forest: #2f6a4a; /* color principal */
-  --forest-dark: #235037;
-  --gold: #d4ac0d; /* acento */
-  --gold-soft: #fef9e7; /* cajas destacadas */
-  --charcoal: #2b2926; /* fondo de la cabecera */
-  --ink: #1c1a17; /* texto */
-  --muted: #5c574e; /* texto secundario */
-  --brick: #b53a2a; /* avisos y puntos débiles (rojo apagado, acorde a la paleta) */
-  --brick-soft: #fbece9;
+  --paper: #f2f2f2; /* fondo */
+  --line: #ececec; /* divisores y bordes suaves */
+  --edge: #d6d6d6; /* bordes de controles y tarjetas */
+  --tint: #e6e6e6; /* verde muy pálido: filas destacadas, hover */
+  --forest: #0a8f5b; /* color principal */
+  --forest-dark: #077a4d;
+  --gold: #d9a406; /* acento */
+  --gold-soft: #fdf6dd; /* cajas destacadas */
+  --charcoal: #2b2b2b; /* fondo de la cabecera */
+  --ink: #111111; /* texto */
+  --muted: #6b6b6b; /* texto secundario */
+  --brick: #d23b2e; /* avisos y puntos débiles (rojo apagado, acorde a la paleta) */
+  --brick-soft: #fdecea;
 }
 
 @theme inline {
@@ -42,7 +42,7 @@ html {
 }
 
 body {
-  background: var(--paper);
+  background: #ffffff;
   color: var(--ink);
   font-family: var(--font-sans);
 }
@@ -57,4 +57,24 @@ body {
 :focus-visible {
   outline: 2px solid var(--forest);
   outline-offset: 2px;
+}
+
+/* Hoja inferior del mapa: entra deslizándose desde abajo */
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+.sheet-in {
+  animation: sheet-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet-in {
+    animation: none;
+  }
+}
+
+/* En el mapa la cabecera flota translúcida sobre él: los controles de zoom bajan para no quedar debajo */
+.maplibregl-map .maplibregl-ctrl-top-right {
+  top: 57px !important;
 }
