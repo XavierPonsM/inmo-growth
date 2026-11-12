@@ -1243,6 +1243,40 @@ function Sheet({ expanded, onExpand, onDown, children }: { expanded: boolean; on
   );
 }
 
+// Hoja modal (filtros, selector de lista): se cierra tocando fuera o deslizándola hacia abajo
+function ModalSheet({ label, onClose, panelClass, children }: { label: string; onClose: () => void; panelClass: string; children: ReactNode }) {
+  const [dy, setDy] = useState(0);
+  const drag = useRef<{ y: number; ok: boolean } | null>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="dialog" aria-label={label}>
+      <button aria-label="Cerrar" onClick={onClose} className="absolute inset-0 bg-black/40" />
+      <div
+        ref={panel}
+        onTouchStart={(e) => {
+          // solo se arrastra si el contenido bajo el dedo está arriba del todo (si no, el gesto es desplazar la lista)
+          let ok = true;
+          for (let n = e.target as HTMLElement | null; n; n = n === panel.current ? null : n.parentElement) if (n.scrollTop > 0) ok = false;
+          drag.current = { y: e.touches[0].clientY, ok };
+        }}
+        onTouchMove={(e) => {
+          const d = drag.current;
+          if (d?.ok) setDy(Math.max(0, e.touches[0].clientY - d.y));
+        }}
+        onTouchEnd={() => {
+          if (dy > 70) onClose();
+          drag.current = null;
+          setDy(0);
+        }}
+        style={{ transform: `translateY(${dy}px)`, transition: dy ? "none" : "transform 0.25s ease" }}
+        className={`sheet-in relative w-full max-w-md overscroll-contain rounded-t-3xl bg-white md:rounded-3xl ${panelClass}`}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 // Resumen del municipio en la hoja recogida
 function SheetPeek({ r, fav, onFav, onExpand }: { r: Row; fav: boolean; onFav: () => void; onExpand: () => void }) {
   const rc = recommend(r);
@@ -1649,9 +1683,7 @@ export default function Explorer() {
   // las pastillas se desmarcan al volver a tocarlas (sin opción "Cualquiera")
   const size = (lo: number, hi: number) => set(sizeIs(lo, hi) ? { minPop: base.minPop, maxPop: base.maxPop } : { minPop: lo, maxPop: hi });
   const filterDialog = showFilters && (
-    <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="dialog" aria-label="Filtros">
-      <button aria-label="Cerrar" onClick={() => setShowFilters(false)} className="absolute inset-0 bg-black/40" />
-      <div className="sheet-in relative flex max-h-[88dvh] w-full max-w-md flex-col rounded-t-3xl bg-white md:rounded-3xl">
+    <ModalSheet label="Filtros" onClose={() => setShowFilters(false)} panelClass="flex max-h-[88dvh] flex-col">
         <div className="mx-auto mt-3 h-1.5 w-10 shrink-0 rounded-full bg-edge md:hidden" />
         <div className="flex shrink-0 items-center justify-between px-5 pb-1 pt-4">
           <h2 className="text-xl font-semibold tracking-tight">Filtros</h2>
@@ -1668,7 +1700,7 @@ export default function Explorer() {
             </button>
           )}
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-5">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5">
           <FilterRow label="Dónde">
             <select
               className="h-10 w-full rounded-full bg-paper px-4 text-sm font-medium text-ink"
@@ -1770,8 +1802,7 @@ export default function Explorer() {
             {listed.length === 0 ? "Ningún municipio" : `Ver ${fmt.format(listed.length)} ${listed.length === 1 ? "municipio" : "municipios"}`}
           </button>
         </div>
-      </div>
-    </div>
+    </ModalSheet>
   );
   const loading = <p className="py-16 text-center text-muted">Cargando datos de 8.131 municipios…</p>;
   const rowsOf = (rows: Row[], n: number, ranked = false) => (
@@ -1963,9 +1994,7 @@ export default function Explorer() {
                 </span>
               </div>
               {pickList && (
-                <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="dialog" aria-label="Elegir lista">
-                  <button aria-label="Cerrar" onClick={() => setPickList(false)} className="absolute inset-0 bg-black/40" />
-                  <div className="sheet-in relative max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white px-2 pb-6 pt-3 md:rounded-3xl md:pb-3">
+                <ModalSheet label="Elegir lista" onClose={() => setPickList(false)} panelClass="max-h-[85dvh] overflow-y-auto px-2 pb-6 pt-3 md:pb-3">
                     <div className="mx-auto mb-2 h-1.5 w-10 rounded-full bg-edge md:hidden" />
                     {PRESETS.map((p) => (
                       <button
@@ -1984,8 +2013,7 @@ export default function Explorer() {
                         {p.id === preset && <span className="shrink-0 text-lg font-semibold text-forest">✓</span>}
                       </button>
                     ))}
-                  </div>
-                </div>
+                </ModalSheet>
               )}
               {filterDialog}
               <div className="mt-3" />
