@@ -826,13 +826,13 @@ function TrendChart({ series }: { series: Serie[] }) {
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex gap-1 whitespace-nowrap text-[13px]">
+        <div className="flex gap-4 whitespace-nowrap text-[13px]">
           {series.map((x) => (
             <button
               key={x.id}
               onClick={() => setSid(x.id)}
               aria-pressed={x.id === se.id}
-              className={`rounded-full px-3 py-1 font-medium ${x.id === se.id ? "bg-ink text-white" : "bg-paper text-ink hover:bg-tint"}`}
+              className={`border-b-2 py-1 font-medium ${x.id === se.id ? "border-ink text-ink" : "border-transparent text-muted hover:text-ink"}`}
             >
               {x.label}
             </button>
@@ -1027,10 +1027,19 @@ function Ficha({
           <p className="text-sm text-muted">
             {sel.prov} · {fmt.format(sel.pop)} hab.
           </p>
-          <div className="mt-5 flex items-center gap-2">
+          <div className="mt-5 flex items-baseline gap-2">
             <span className="text-6xl font-semibold leading-none tabular-nums tracking-tight text-ink">{sel.score === null ? "—" : fmt1.format(sel.score)}</span>
-            <Info>Índice de crecimiento, de 0 a 100{rank ? `. Puesto ${fmt.format(rank)} de ${fmt.format(total)} municipios` : ""}.</Info>
+            {sel.score !== null && <span className="text-sm text-muted">/ 100</span>}
+            <span className="self-center">
+              <Info>Índice de crecimiento, de 0 a 100{rank ? `. Puesto ${fmt.format(rank)} de ${fmt.format(total)} municipios` : ""}.</Info>
+            </span>
           </div>
+          {sel.score !== null && (
+            <div className="relative mt-3 h-[3px] w-48 max-w-full rounded-full bg-tint" aria-hidden>
+              <div className="h-full rounded-full bg-ink" style={{ width: `${sel.score}%` }} />
+              <span className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-forest ring-2 ring-white" style={{ left: `${sel.score}%` }} />
+            </div>
+          )}
           {rec && (
             <div className="mt-3 flex items-center gap-2 text-[15px] font-semibold text-ink">
               <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: rec.color }} />
