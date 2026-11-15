@@ -1620,10 +1620,21 @@ function MapView({
           "circle-stroke-opacity": 0.55,
         },
       });
+      // aro sobre el último municipio abierto: se queda puesto aunque se cierre la ficha, para no perderlo de vista
+      m.addSource("sel", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      const ring = ["interpolate", ["linear"], ["zoom"], 5, ["+", SIZE_AT(1), 6], 10, ["+", SIZE_AT(2), 7]] as unknown as maplibregl.ExpressionSpecification;
+      m.addLayer({ id: "sel-halo", type: "circle", source: "sel", paint: { "circle-radius": ring, "circle-color": "rgba(0,0,0,0)", "circle-stroke-width": 6, "circle-stroke-color": "#ffffff", "circle-stroke-opacity": 0.9 } });
+      m.addLayer({ id: "sel-ring", type: "circle", source: "sel", paint: { "circle-radius": ring, "circle-color": "rgba(0,0,0,0)", "circle-stroke-width": 3, "circle-stroke-color": "#111111" } });
+      const mark = (r: Row) =>
+        (m.getSource("sel") as maplibregl.GeoJSONSource | undefined)?.setData({
+          type: "FeatureCollection",
+          features: [{ type: "Feature", geometry: { type: "Point", coordinates: [r.lon, r.lat] }, properties: { score: mainVal(r, modeRef.current) ?? 0 } }],
+        });
       m.on("click", "pts", (e) => {
         const id = e.features?.[0]?.properties?.id;
         const r = rowsRef.current.find((x) => x.id === id);
         if (r) {
+          mark(r);
           pickRef.current = r;
           setPicked(r);
           setExpanded(m.getContainer().clientWidth >= 768); // en pantallas anchas se abre ya la ficha completa; en móvil, el resumen
@@ -1655,6 +1666,7 @@ function MapView({
       const fid = focusRef.current;
       const fr = fid ? rowsRef.current.find((x) => x.id === fid) : null;
       if (fr) {
+        mark(fr);
         pickRef.current = fr;
         setPicked(fr);
         setExpanded(m.getContainer().clientWidth >= 768);
