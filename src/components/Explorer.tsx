@@ -75,6 +75,8 @@ type Row = {
   hospKm: number | null; // km en línea recta al hospital más cercano
   trenKm: number | null; // km en línea recta a la estación de tren o metro más cercana
   trenN: number | null; // estaciones en el municipio
+  aerKm: number | null; // km en línea recta al aeropuerto comercial más cercano
+  aer: string | null; // su nombre
   sCol?: number | null; // 0-100 (se calculan al cargar)
   sSal?: number | null;
   sTren?: number | null;
@@ -178,6 +180,7 @@ function recommend(r: Row): Rec | null {
 // ---- Modo de uso: para invertir (índice de crecimiento) o para vivir (índice propio: seguridad, servicios, empleo y precio) ----
 type Mode = "inv" | "viv";
 const MODE_KEY = "inmo-modo";
+const AG_KEY = "inmo-agencia"; // clave de la agencia (public/agencias.json) con la que se abrió la app: marca las fichas que se comparten
 const ModeCtx = createContext<Mode>("inv");
 const BudgetCtx = createContext<{ budget: number | null; m2: number }>({ budget: null, m2: 90 }); // presupuesto y metros del usuario (modo vivir)
 function subscribeMode(cb: () => void) {
@@ -282,7 +285,7 @@ function computeViv(rows: Row[]) {
     r.sCol = pCol(r);
     const ps = pSal(r), ph = near(r.hospKm, 5, 40); // sanidad: mitad centros cerca, mitad cercanía a un hospital (100 a 5 km o menos, 0 a 40 km)
     r.sSal = ps === null ? ph : ph === null ? ps : Math.round((ps + ph) / 2);
-    r.sTren = near(r.trenKm, 2, 20); // 100 con estación a 2 km o menos, 0 a 20 km
+    r.sTren = r.trenKm != null && r.trenKm > 60 ? null : near(r.trenKm, 2, 20); // 100 con estación a 2 km o menos, 0 a 20 km; a más de 60 km (islas sin tren) no cuenta ni penaliza
     if (r.esf == null || ref.length < 2) {
       r.sAse = null;
     } else {
@@ -1173,6 +1176,32 @@ function Ficha({
   const factors = viv ? vivFactors(sel) : buildFactors(sel, data, hist);
   const head = mainVal(sel, mode);
   const vv = vivVerdict(sel.viv);
+  const [copied, setCopied] = useState(false);
+  // enlace a la ficha compartible (con la marca de la agencia, si la app se abrió con una)
+  const share = async () => {
+    let ag = "";
+    try {
+      ag = localStorage.getItem(AG_KEY) ?? "";
+    } catch {
+      // sin almacenamiento se comparte sin marca
+    }
+    const url = `${location.origin}/f?id=${sel.id}&m=${mode}${ag ? `&a=${encodeURIComponent(ag)}` : ""}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: sel.n, url });
+      } catch {
+        // el usuario canceló
+      }
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      window.open(url, "_blank");
+    }
+  };
   const wsum = factors.reduce((a, f) => (f.v === null ? a : a + f.w), 0);
   const calc = factors.map((f) => ({ ...f, delta: f.v === null ? null : (f.w * (f.v - 50)) / wsum }));
   const pros = calc.filter((f) => f.delta !== null && f.delta >= 0.4).sort((a, b) => (b.delta ?? 0) - (a.delta ?? 0)).slice(0, 3);
@@ -1210,6 +1239,9 @@ function Ficha({
               {mapLabel}
             </button>
           )}
+          <button onClick={share} className="font-semibold text-muted hover:text-ink">
+            {copied ? "Enlace copiado" : "Compartir"}
+          </button>
           <button onClick={onFav} aria-pressed={fav} className={`font-semibold ${fav ? "text-gold" : "text-muted hover:text-ink"}`}>
             {fav ? "★ Guardado" : "☆ Guardar"}
           </button>
@@ -1330,7 +1362,7 @@ function Ficha({
           {viv && (
             <Stat
               label="Tren o metro"
-              value={sel.trenKm == null ? "—" : sel.trenKm < 1 ? "Menos de 1 km" : `${fmt1.format(sel.trenKm)} km`}
+              value={sel.trenKm == null ? "—" : sel.trenKm > 60 ? "No hay" : sel.trenKm < 1 ? "Menos de 1 km" : `${fmt1.format(sel.trenKm)} km`}
               info={`Distancia en línea recta del centro del municipio a la estación más cercana${sel.trenN ? `; ${sel.trenN} ${sel.trenN === 1 ? "estación" : "estaciones"} en el municipio` : ""} (OpenStreetMap). No indica cuántos trenes paran.`}
             />
           )}
@@ -1342,6 +1374,11 @@ function Ficha({
           />
           <Stat label="Ciudad grande" value={sel.dc === 0 ? "Lo es" : `${fmt.format(sel.dc)} km`} info={sel.dc === 0 ? "Tiene más de 100.000 habitantes." : `${sel.cn}, la ciudad de más de 100.000 hab. más cercana por carretera (estimado).`} />
           <Stat label="Mar" value={sel.costa === null ? "—" : `${fmt.format(Math.round(sel.costa))} km`} info="Distancia en línea recta." />
+          <Stat
+            label="Aeropuerto"
+            value={sel.aerKm == null ? "—" : `${fmt.format(sel.aerKm)} km`}
+            info={sel.aer == null ? "Sin dato." : `${sel.aer}, el aeropuerto con vuelos comerciales más cercano, en línea recta. Los pequeños pueden tener muy pocos vuelos.`}
+          />
           <Stat
             label="Vivienda turística"
             value={sel.tur === null ? "—" : `${fmt1.format(sel.tur)}%`}
@@ -1862,6 +1899,16 @@ function Inner({ mode }: { mode: Mode }) {
       // sin almacenamiento las preferencias duran solo esta visita
     }
   };
+  // si la app se abre con ?a=<agencia>, se recuerda para marcar las fichas que se compartan desde este navegador
+  useEffect(() => {
+    const ag = new URLSearchParams(location.search).get("a");
+    if (!ag) return;
+    try {
+      localStorage.setItem(AG_KEY, ag);
+    } catch {
+      // sin almacenamiento la marca no se recuerda
+    }
+  }, []);
   const setMode = (m: Mode) => {
     try {
       localStorage.setItem(MODE_KEY, m);
@@ -2527,5 +2574,228 @@ function Inner({ mode }: { mode: Mode }) {
       )}
     </div>
     </BudgetCtx.Provider>
+  );
+}
+
+// ---- Ficha compartible: una página limpia de un municipio para enviar a un cliente, con la marca de la agencia ----
+type Agencia = { nombre: string; tel?: string; web?: string; logo?: string; color?: string };
+const noSub = () => () => {};
+export function SharedFicha() {
+  // los parámetros del enlace se leen en el navegador; en el servidor la página sale vacía ("Cargando…")
+  const search = useSyncExternalStore(noSub, () => location.search, () => "");
+  const qs = useMemo(() => new URLSearchParams(search), [search]);
+  const id = qs.get("id") ?? "";
+  const a = qs.get("a") ?? undefined;
+  const m = qs.get("m");
+  const mode: Mode = m === "inv" ? "inv" : "viv";
+  const viv = mode === "viv";
+  const [data, setData] = useState<Data | null>(DATA_CACHE);
+  const [failed, setFailed] = useState(false);
+  const [ag, setAg] = useState<Agencia | null>(null);
+  useEffect(() => {
+    if (DATA_CACHE) return;
+    let cancelled = false;
+    fetch("/municipios.json")
+      .then((r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        return r.json();
+      })
+      .then((d: Data) => {
+        if (cancelled) return;
+        estimatePrices(d);
+        computeViv(d.rows);
+        DATA_CACHE = d;
+        setData(d);
+      })
+      .catch(() => !cancelled && setFailed(true));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  useEffect(() => {
+    if (!a) return;
+    let cancelled = false;
+    fetch("/agencias.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: Record<string, Agencia> | null) => !cancelled && d && d[a] && setAg(d[a]))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [a]);
+
+  const r = data?.rows.find((x) => x.id === id) ?? null;
+  const accent = ag?.color ?? "var(--ink)";
+  const brand = (
+    <div className="flex items-center justify-between gap-3 border-b border-line pb-4">
+      <div className="flex min-w-0 items-center gap-3">
+        {ag?.logo && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={ag.logo} alt="" className="h-10 w-10 shrink-0 rounded-lg object-contain" />
+        )}
+        <div className="min-w-0">
+          <div className="truncate text-lg font-bold leading-tight tracking-tight text-ink">{ag?.nombre ?? "Inmo Growth"}</div>
+          {ag?.web && <div className="truncate text-[13px] text-muted">{ag.web}</div>}
+        </div>
+      </div>
+      {ag?.tel && (
+        <a href={`tel:${ag.tel.replace(/\s/g, "")}`} className="shrink-0 whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold text-white" style={{ background: accent }}>
+          {ag.tel}
+        </a>
+      )}
+    </div>
+  );
+  if (!r) {
+    return (
+      <main className="mx-auto min-h-dvh max-w-2xl bg-white px-5 py-6 text-ink">
+        {brand}
+        <p className="py-16 text-center text-muted">{failed ? "No se han podido cargar los datos. Vuelve a intentarlo." : data ? "Municipio no encontrado." : "Cargando…"}</p>
+      </main>
+    );
+  }
+
+  const head = mainVal(r, mode);
+  const verdict = viv ? vivVerdict(r.viv) : recommend(r);
+  const factors = viv ? vivFactors(r) : buildFactors(r, data, data?.negHist ?? false);
+  const wsum = factors.reduce((s, f) => (f.v === null ? s : s + f.w), 0);
+  const calc = factors.map((f) => ({ ...f, delta: f.v === null ? null : (f.w * (f.v - 50)) / wsum }));
+  const pros = calc.filter((f) => f.delta !== null && f.delta >= 0.4).sort((x, y) => (y.delta ?? 0) - (x.delta ?? 0)).slice(0, 4);
+  const cons = calc.filter((f) => f.delta !== null && f.delta <= -0.4).sort((x, y) => (x.delta ?? 0) - (y.delta ?? 0)).slice(0, 3);
+  const approx = r.vtK === "mun" ? "" : "≈ ";
+  const piso = r.vtE == null ? null : Math.round((r.vtE * M2_REF) / 1000) * 1000;
+  const facts: [string, string | null, string?][] = viv
+    ? [
+        [`Piso de ${M2_REF} m²`, piso === null ? null : `≈ ${fmt.format(piso)} €`],
+        ["Alquiler", r.alqRE === null ? null : `≈ ${fmt.format(r.alqRE)} €/mes`],
+        ["Okupación", r.okR === null ? null : okLevel(r.okR), okDot(r.okR)],
+        ["Zona", r.zona === null ? null : cap(zoneShort(r.zona).replace("Zona ", "")), zoneDot(r.zona)],
+        ["Paro", r.paro === null ? null : `${fmt1.format(r.paro)}%`],
+        ["Colegios a 3 km", r.col == null ? null : String(r.col)],
+        ["Centros sanitarios a 3 km", r.sal == null ? null : String(r.sal)],
+        ["Hospital", r.hospKm == null ? null : `${fmt1.format(r.hospKm)} km`],
+        ["Tren o metro", r.trenKm == null || r.trenKm > 30 ? null : r.trenKm < 1 ? "Menos de 1 km" : `${fmt1.format(r.trenKm)} km`],
+        ["Ciudad grande", r.dc === 0 ? "Lo es" : r.dc > 100 ? null : `${r.cn}, ${fmt.format(r.dc)} km`],
+        ["Mar", r.costa === null || r.costa > 60 ? null : `${fmt.format(Math.round(r.costa))} km`],
+        ["Aeropuerto", r.aerKm == null || r.aerKm > 150 ? null : `${r.aer}, ${fmt.format(r.aerKm)} km`],
+      ]
+    : [
+        ["Población en 5 años", `${sgn(r.g5)}%`],
+        ["Precio", r.vtE == null ? null : `${approx}${fmt.format(r.vtE)} €/m²`],
+        ["Alquiler", r.alqRE === null ? null : `≈ ${fmt.format(r.alqRE)} €/mes`],
+        ["Rentabilidad bruta", r.rb === null ? null : `${fmt1.format(r.rb)}%`],
+        ["Okupación", r.okR === null ? null : okLevel(r.okR), okDot(r.okR)],
+        ["Zona", r.zona === null ? null : cap(zoneShort(r.zona).replace("Zona ", "")), zoneDot(r.zona)],
+        ["Paro", r.paro === null ? null : `${fmt1.format(r.paro)}%`],
+        ["Vivienda turística", r.tur === null ? null : `${fmt1.format(r.tur)}%`],
+        ["Obra pública", r.op === null ? null : `${fmt.format(r.op)} €/hab.`],
+        ["Universidad", r.uniKm === null ? null : `${fmt1.format(r.uniKm)} km`],
+        ["Ciudad grande", r.dc === 0 ? "Lo es" : r.dc > 100 ? null : `${r.cn}, ${fmt.format(r.dc)} km`],
+        ["Mar", r.costa === null || r.costa > 60 ? null : `${fmt.format(Math.round(r.costa))} km`],
+        ["Aeropuerto", r.aerKm == null || r.aerKm > 150 ? null : `${r.aer}, ${fmt.format(r.aerKm)} km`],
+      ];
+  const series: Serie[] = [];
+  if (r.ps && data) series.push({ id: "pop", label: "Población", pts: r.ps.map((v, i) => [data.psY + i, v]), unit: "hab.", up: "good" });
+  if (r.vtS) series.push({ id: "vt", label: "Precio", pts: r.vtS, unit: "€/m²", up: "good", note: "precio de tasación (Ministerio)" });
+  if (r.alqS) series.push({ id: "alq", label: "Alquiler", pts: r.alqS, unit: "€/m² al mes", up: "good", note: "mediana de los contratos declarados (Ministerio de Vivienda)" });
+  const list = (items: typeof calc, good: boolean) => (
+    <ul>
+      {items.map((f) => (
+        <li key={f.k} className="flex gap-2.5 py-2">
+          <span className={`shrink-0 font-semibold ${good ? "text-forest" : "text-brick"}`}>{good ? "✓" : "✕"}</span>
+          <span className="min-w-0">
+            <span className="block text-[15px] font-medium text-ink">{f.label}</span>
+            <span className="block text-[13px] leading-snug text-muted">{f.hint}</span>
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+
+  return (
+    <ModeCtx.Provider value={mode}>
+      <main className="@container mx-auto min-h-dvh max-w-2xl bg-white px-5 py-6 text-ink">
+        {brand}
+        <header className="flex items-start justify-between gap-4 pt-6">
+          <div className="min-w-0">
+            <h1 className="text-[28px] font-semibold leading-tight tracking-tight">{r.n}</h1>
+            <p className="text-sm text-muted">
+              {r.prov} · {fmt.format(r.pop)} hab.
+            </p>
+            <div className="mt-5 flex items-baseline gap-2">
+              <span className="text-6xl font-semibold leading-none tabular-nums tracking-tight">{head === null ? "—" : fmt1.format(head)}</span>
+              {head !== null && <span className="text-sm text-muted">/ 100</span>}
+            </div>
+            {head !== null && (
+              <div className="relative mt-3 h-[3px] w-48 max-w-full rounded-full bg-tint" aria-hidden>
+                <div className="h-full rounded-full bg-ink" style={{ width: `${head}%` }} />
+                <span className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-white" style={{ left: `${head}%`, background: accent }} />
+              </div>
+            )}
+            <p className="mt-2 text-[13px] text-muted">{viv ? "Índice para vivir: seguridad, servicios, empleo y precio" : "Índice de crecimiento del municipio"}</p>
+            {verdict && (
+              <div className="mt-2 flex items-center gap-2 text-[15px] font-semibold">
+                <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: verdict.color }} />
+                {verdict.label}
+              </div>
+            )}
+          </div>
+          <MiniMap r={r} />
+        </header>
+
+        <section className="mt-6">
+          <dl className="grid grid-cols-2 gap-x-6 @xl:grid-cols-3">
+            {facts.map(([label, value, dot]) => value !== null && <Stat key={label} label={label} value={value} dot={dot} />)}
+          </dl>
+        </section>
+
+        {(pros.length > 0 || cons.length > 0) && (
+          <section className="mt-5 grid gap-x-10 gap-y-4 @xl:grid-cols-2">
+            {pros.length > 0 && (
+              <div>
+                <h2 className="text-lg font-semibold tracking-tight">A favor</h2>
+                {list(pros, true)}
+              </div>
+            )}
+            {cons.length > 0 && (
+              <div>
+                <h2 className="text-lg font-semibold tracking-tight">A tener en cuenta</h2>
+                {list(cons, false)}
+              </div>
+            )}
+          </section>
+        )}
+
+        {series.length > 0 && (
+          <section className="mt-7">
+            <TrendChart series={series} />
+          </section>
+        )}
+
+        <div className="no-print mt-8 flex flex-wrap gap-2">
+          {ag?.tel && (
+            <a href={`tel:${ag.tel.replace(/\s/g, "")}`} className="flex-1 whitespace-nowrap rounded-full px-5 py-3 text-center text-[15px] font-semibold text-white" style={{ background: accent }}>
+              Llamar a {ag.nombre}
+            </a>
+          )}
+          <button onClick={() => window.print()} className="flex-1 whitespace-nowrap rounded-full bg-paper px-5 py-3 text-[15px] font-semibold text-ink hover:bg-tint">
+            Guardar en PDF
+          </button>
+        </div>
+
+        <footer className="mt-8 border-t border-line pt-4 text-xs leading-relaxed text-muted">
+          <p>
+            Datos públicos: INE, Ministerio de Vivienda, Ministerio del Interior, SEPE, Catastro y OpenStreetMap. Las cifras con «≈» son estimaciones y el riesgo de okupación es orientativo. Este documento es
+            informativo: no es una tasación ni asesoramiento financiero.
+          </p>
+          <p className="mt-2">
+            {ag ? `Preparado por ${ag.nombre} con ` : "Hecho con "}
+            <a href={a ? `/?a=${encodeURIComponent(a)}` : "/"} className="no-print font-semibold text-ink underline">
+              Inmo Growth
+            </a>
+            <span className="hidden print:inline">Inmo Growth</span>.
+          </p>
+        </footer>
+      </main>
+    </ModeCtx.Provider>
   );
 }

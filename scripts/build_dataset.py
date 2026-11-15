@@ -167,6 +167,8 @@ for r in rows:
     r["hospKm"] = float(v["hospKm"]) if v else None    # km en línea recta al hospital más cercano
     r["trenKm"] = float(v["trenKm"]) if v else None    # km en línea recta a la estación de tren o metro más cercana
     r["trenN"] = int(v["trenN"]) if v else None        # estaciones en el municipio
+    r["aerKm"] = int(v["aerKm"]) if v else None        # km en línea recta al aeropuerto comercial más cercano
+    r["aer"] = v["aer"] if v else None                 # su nombre
 
 # Futuro: proyección INE por provincia + suelo disponible y obra nueva (Catastro, 2021 vs 2026; no cubre País Vasco ni Navarra)
 proy = {r["prov"]: r for r in csv.DictReader(open(ROOT / "data/raw/proyeccion_prov.csv"))}

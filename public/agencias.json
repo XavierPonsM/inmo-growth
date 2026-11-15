@@ -1,0 +1,9 @@
+{
+  "demo": {
+    "nombre": "Inmobiliaria Ejemplo",
+    "tel": "900 000 000",
+    "web": "example.com",
+    "logo": "/agencias/demo.svg",
+    "color": "#1d4ed8"
+  }
+}

@@ -1,4 +1,4 @@
-"""Descarga de OpenStreetMap (Overpass) los servicios que importan para vivir: colegios, centros sanitarios, hospitales y estaciones.
+"""Descarga de OpenStreetMap (Overpass) los servicios que importan para vivir: colegios, centros sanitarios, hospitales, estaciones y aeropuertos.
 Salida: data/raw/osm_<categoria>_now.csv  (lat, lon separados por tabulador)
 Uso: python3 -I scripts/fetch_servicios.py     (no vuelve a bajar lo que ya está)
 
@@ -37,6 +37,18 @@ def fetch(sel):
             time.sleep(15 * (attempt + 1))
     raise RuntimeError("Overpass no responde")
 
+
+# aeropuertos: los que tienen código IATA, con su nombre (formato distinto: lat, lon, iata, nombre)
+f = OUT / "osm_aeropuerto_now.csv"
+if not f.exists():
+    print("descargando", f.name, flush=True)
+    q = '[out:csv(::lat,::lon,iata,name;false)][timeout:100];area["ISO3166-1"="ES"][admin_level=2]->.a;(nwr["aeroway"="aerodrome"]["iata"](area.a););out center;'
+    for ep in ENDPOINTS * 3:
+        r = subprocess.run(["curl", "-sS", "-m", "120", "-A", UA, "--data-urlencode", f"data={q}", ep], capture_output=True, text=True)
+        if re.match(r"^-?[\d.]+\t", r.stdout):
+            f.write_text(r.stdout, encoding="utf-8")
+            break
+        time.sleep(15)
 
 for cat, sels in CATS.items():
     f = OUT / f"osm_{cat}_now.csv"

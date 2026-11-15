@@ -4,9 +4,10 @@
 - estaciones en el municipio: asignando cada una al centro de municipio más cercano (máx. 15 km), como en process_osm.py
 - hospital y estación de tren o metro: km en línea recta desde el centro del municipio al más cercano
 Aproximación: no usa polígonos municipales, y OpenStreetMap no está igual de completo en todas partes.
-Salida: data/raw/servicios_mun.csv (ine, col, sal, hospKm, trenKm, trenN)
+- aeropuerto comercial más cercano: km en línea recta y nombre
+Salida: data/raw/servicios_mun.csv (ine, col, sal, hospKm, trenKm, trenN, aerKm, aer)
 """
-import csv, pathlib
+import csv, pathlib, re
 import numpy as np
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -64,9 +65,27 @@ def cercano(a):
 col, sal = alrededor(puntos("colegio")), alrededor(puntos("salud"))
 hosp, tren = puntos("hospital"), puntos("tren")
 hkm, tkm, tn = cercano(hosp), cercano(tren), contar(tren)
+
+# Aeropuerto comercial más cercano. OpenStreetMap trae todos los que tienen código IATA: se quitan las bases militares
+# y los que no tienen vuelos regulares de pasajeros (lista hecha a mano; revisarla si cambia la oferta).
+SIN_VUELOS = {"TOJ", "CQM", "TEV", "OZP", "ROZ", "HSK", "ODB"}
+aer = {}
+for line in open(RAW / "osm_aeropuerto_now.csv", encoding="utf-8"):
+    p = line.rstrip("\n").split("\t")
+    if len(p) < 4 or p[2] in SIN_VUELOS or p[3].startswith("Base"):
+        continue
+    n = re.sub(r"^(Aeropuerto|Aeroport|Aeroporto)( Internacional)?( de| da| d')? ?(la |el )?", "", p[3])
+    n = re.sub(r" (aireportua|- .*)$", "", n).replace("Bilboko", "Bilbao").replace("Donostiako", "San Sebastián").replace("Gasteizko", "Vitoria").replace("Iruñea-Noain", "Pamplona")
+    aer[p[2]] = (float(p[0]), float(p[1]), n.strip()[:1].upper() + n.strip()[1:])
+acod = sorted(aer)
+apts = np.radians(np.array([aer[c][:2] for c in acod]))
+ad = dist(apts, 0)  # aeropuertos x municipios
+aj, akm = ad.argmin(axis=0), ad.min(axis=0)
+
 with open(RAW / "servicios_mun.csv", "w", newline="") as f:
     w = csv.writer(f)
-    w.writerow(["ine", "col", "sal", "hospKm", "trenKm", "trenN"])
+    w.writerow(["ine", "col", "sal", "hospKm", "trenKm", "trenN", "aerKm", "aer"])
     for i, code in enumerate(ids):
-        w.writerow([code, int(col[i]), int(sal[i]), round(float(hkm[i]), 1), round(float(tkm[i]), 1), int(tn[i])])
+        w.writerow([code, int(col[i]), int(sal[i]), round(float(hkm[i]), 1), round(float(tkm[i]), 1), int(tn[i]), round(float(akm[i])), aer[acod[aj[i]]][2]])
+print("aeropuertos:", ", ".join(aer[c][2] for c in acod))
 print("colegios a 3 km (suma)", int(col.sum()), "| salud a 3 km (suma)", int(sal.sum()), "| hospitales", len(hosp), "| estaciones", len(tren))

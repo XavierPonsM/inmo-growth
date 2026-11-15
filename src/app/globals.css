@@ -78,3 +78,10 @@ body {
 .maplibregl-map .maplibregl-ctrl-top-right {
   top: 57px !important;
 }
+
+/* ficha compartible: al imprimir o guardar como PDF se ocultan los botones */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
