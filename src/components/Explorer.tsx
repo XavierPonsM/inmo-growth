@@ -991,7 +991,10 @@ function Sparkline({ ps, w = 72, h = 26 }: { ps: number[] | null; w?: number; h?
 const PCT_FACTORS = new Set(["pop", "inv", "neg", "juv", "paro", "paroT", "viv", "vac"]);
 
 type Serie = { id: string; label: string; pts: [number, number][]; unit: string; note?: string; up: "good" | "bad" };
-function TrendChart({ series }: { series: Serie[] }) {
+function TrendChart({ series, tx }: { series: Serie[]; tx?: { years: string; since: string; locale: string } }) {
+  // tx: textos y formato de números para la ficha compartible en otro idioma
+  const f0 = tx ? new Intl.NumberFormat(tx.locale) : fmt;
+  const f1 = tx ? new Intl.NumberFormat(tx.locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : fmt1;
   const [sid, setSid] = useState(series[0]?.id);
   const [span, setSpan] = useState<5 | 10>(10);
   const se = series.find((x) => x.id === sid) ?? series[0];
@@ -1029,7 +1032,7 @@ function TrendChart({ series }: { series: Serie[] }) {
           <div className="flex gap-1 text-xs">
             {([5, 10] as const).map((n) => (
               <button key={n} onClick={() => setSpan(n)} className={`rounded-full px-2.5 py-1 font-semibold ${span === n ? "bg-paper text-ink" : "text-muted hover:text-ink"}`}>
-                {n} años
+                {n} {tx?.years ?? "años"}
               </button>
             ))}
           </div>
@@ -1038,9 +1041,9 @@ function TrendChart({ series }: { series: Serie[] }) {
       <div className="mt-3 flex items-center gap-1.5 text-sm text-muted">
         <span className="font-semibold tabular-nums" style={{ color: col }}>
           {ch >= 0 ? "+" : ""}
-          {fmt1.format(ch)}%
+          {f1.format(ch)}%
         </span>
-        desde {pts[0][0]}
+        {tx?.since ?? "desde"} {pts[0][0]}
         {se.note ? <Info>{cap(se.note)}.</Info> : null}
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="mt-2 h-36 w-full" role="img" aria-label={`${se.label} de ${pts[0][0]} a ${pts[pts.length - 1][0]}`}>
@@ -1049,10 +1052,10 @@ function TrendChart({ series }: { series: Serie[] }) {
       </svg>
       <div className="flex justify-between text-xs tabular-nums text-muted">
         <span>
-          {pts[0][0]} · {(pts[0][1] < 100 ? fmt1 : fmt).format(pts[0][1])} {se.unit}
+          {pts[0][0]} · {(pts[0][1] < 100 ? f1 : f0).format(pts[0][1])} {se.unit}
         </span>
         <span>
-          {pts[pts.length - 1][0]} · {(pts[pts.length - 1][1] < 100 ? fmt1 : fmt).format(pts[pts.length - 1][1])} {se.unit}
+          {pts[pts.length - 1][0]} · {(pts[pts.length - 1][1] < 100 ? f1 : f0).format(pts[pts.length - 1][1])} {se.unit}
         </span>
       </div>
     </div>
@@ -2578,15 +2581,101 @@ function Inner({ mode }: { mode: Mode }) {
 }
 
 // ---- Ficha compartible: una página limpia de un municipio para enviar a un cliente, con la marca de la agencia ----
+// Sale en español, francés o inglés: manda el parámetro "l" del enlace y, si no viene, el idioma del navegador de quien la abre.
 type Agencia = { nombre: string; tel?: string; web?: string; logo?: string; color?: string };
+type Lang = "es" | "fr" | "en";
+const LOCALE: Record<Lang, string> = { es: "es-ES", fr: "fr-FR", en: "en-GB" };
+const TX = {
+  es: {
+    idxViv: "Índice para vivir: seguridad, servicios, empleo y precio", idxInv: "Índice de crecimiento del municipio", hab: "hab.",
+    vv: ["Muy buen sitio para vivir", "Buen sitio para vivir", "Sitio normal", "Flojo para vivir"], rec: ["Descartar", "Con cautela", "A estudiar", "Buena candidata"],
+    lvl: ["Bajo", "Medio", "Medio-alto", "Alto"], zone: ["Buena", "Media", "Floja"],
+    piso: "Piso de 90 m²", alq: "Alquiler", mes: "/mes", ok: "Okupación", zona: "Zona", paro: "Paro", col: "Colegios a 3 km", sal: "Centros sanitarios a 3 km", hosp: "Hospital",
+    tren: "Tren o metro", lt1: "Menos de 1 km", ciu: "Ciudad grande", loEs: "Lo es", mar: "Mar", aer: "Aeropuerto", pop5: "Población en 5 años", precio: "Precio", rb: "Rentabilidad bruta",
+    tur: "Vivienda turística", op: "Obra pública", opU: "€/hab.", uni: "Universidad", pros: "A favor", cons: "A tener en cuenta", sPop: "Población", sVt: "Precio", sAlq: "Alquiler",
+    years: "años", since: "desde", call: "Llamar a", pdf: "Guardar en PDF", by: "Preparado por", withApp: "con", made: "Hecho con", loading: "Cargando…", notFound: "Municipio no encontrado.",
+    failed: "No se han podido cargar los datos. Vuelve a intentarlo.",
+    legal: "Datos públicos: INE, Ministerio de Vivienda, Ministerio del Interior, SEPE, Catastro y OpenStreetMap. Las cifras con «≈» son estimaciones y el riesgo de okupación es orientativo. Este documento es informativo: no es una tasación ni asesoramiento financiero.",
+  },
+  fr: {
+    idxViv: "Indice de qualité de vie : sécurité, services, emploi et prix", idxInv: "Indice de croissance de la commune", hab: "hab.",
+    vv: ["Très bon endroit où vivre", "Bon endroit où vivre", "Endroit dans la moyenne", "Endroit peu attractif"], rec: ["À écarter", "Avec prudence", "À étudier", "Bon candidat"],
+    lvl: ["Faible", "Moyen", "Moyen à élevé", "Élevé"], zone: ["Bonne", "Moyenne", "Faible"],
+    piso: "Appartement de 90 m²", alq: "Loyer", mes: "/mois", ok: "Risque de squat", zona: "Qualité du secteur", paro: "Chômage", col: "Écoles à 3 km", sal: "Centres de santé à 3 km", hosp: "Hôpital",
+    tren: "Train ou métro", lt1: "Moins de 1 km", ciu: "Grande ville", loEs: "C'en est une", mar: "Mer", aer: "Aéroport", pop5: "Population sur 5 ans", precio: "Prix", rb: "Rendement brut",
+    tur: "Locations touristiques", op: "Travaux publics", opU: "€/hab.", uni: "Université", pros: "Points forts", cons: "À savoir", sPop: "Population", sVt: "Prix", sAlq: "Loyer",
+    years: "ans", since: "depuis", call: "Appeler", pdf: "Enregistrer en PDF", by: "Préparé par", withApp: "avec", made: "Réalisé avec", loading: "Chargement…", notFound: "Commune introuvable.",
+    failed: "Impossible de charger les données. Veuillez réessayer.",
+    legal: "Données publiques espagnoles : INE, ministère du Logement, ministère de l'Intérieur, SEPE, Cadastre et OpenStreetMap. Les chiffres précédés de « ≈ » sont des estimations et le risque de squat est indicatif. Ce document est fourni à titre d'information : il ne constitue ni une expertise immobilière ni un conseil financier.",
+  },
+  en: {
+    idxViv: "Liveability index: safety, services, jobs and price", idxInv: "Growth index for the municipality", hab: "residents",
+    vv: ["A very good place to live", "A good place to live", "An average place to live", "A weaker place to live"], rec: ["Avoid", "With caution", "Worth a look", "Strong candidate"],
+    lvl: ["Low", "Medium", "Medium to high", "High"], zone: ["Good", "Average", "Weak"],
+    piso: "90 m² flat", alq: "Rent", mes: "/month", ok: "Squatting risk", zona: "Area quality", paro: "Unemployment", col: "Schools within 3 km", sal: "Health centres within 3 km", hosp: "Hospital",
+    tren: "Train or metro", lt1: "Under 1 km", ciu: "Nearest city", loEs: "It is one", mar: "Sea", aer: "Airport", pop5: "Population, 5 years", precio: "Price", rb: "Gross yield",
+    tur: "Holiday lets", op: "Public works", opU: "€ per resident", uni: "University", pros: "Strengths", cons: "Worth knowing", sPop: "Population", sVt: "Price", sAlq: "Rent",
+    years: "years", since: "since", call: "Call", pdf: "Save as PDF", by: "Prepared by", withApp: "with", made: "Made with", loading: "Loading…", notFound: "Municipality not found.",
+    failed: "The data could not be loaded. Please try again.",
+    legal: "Spanish public data: INE, Ministry of Housing, Ministry of the Interior, SEPE, Land Registry (Catastro) and OpenStreetMap. Figures marked “≈” are estimates and the squatting risk is indicative. This document is for information only: it is not a valuation or financial advice.",
+  },
+} as const;
+// nombres de los factores en francés e inglés (en español se usan los de la app)
+const FACTOR_TX: Record<"fr" | "en", Record<string, string>> = {
+  fr: {
+    vase: "Prix abordable", vseg: "Sécurité", vok: "Peu de squats", vparo: "Emploi", vneg: "Commerces", vcol: "Écoles", vsal: "Santé", vtren: "Train ou métro", vrenta: "Revenu des habitants", vpob: "Peu de pauvreté",
+    pop: "Croissance de la population", inv: "Investissement public", uni: "Université", neg: "Commerces", pend: "Logements prévus au plan d'urbanisme", viv: "Constructions récentes", ae: "Terrains prévus pour l'activité économique",
+    juv: "Population jeune", paro: "Emploi", paroT: "Évolution du chômage", vac: "Marché tendu", cos: "Proximité de la mer", ciu: "Proximité d'une grande ville",
+  },
+  en: {
+    vase: "Affordable price", vseg: "Safety", vok: "Low squatting risk", vparo: "Jobs", vneg: "Shops", vcol: "Schools", vsal: "Healthcare", vtren: "Train or metro", vrenta: "Residents' income", vpob: "Low poverty",
+    pop: "Population growth", inv: "Public investment", uni: "University", neg: "Shops", pend: "Homes planned in the zoning plan", viv: "Recent new builds", ae: "Land planned for business use",
+    juv: "Young population", paro: "Jobs", paroT: "Unemployment trend", vac: "Tight housing market", cos: "Close to the sea", ciu: "Close to a large city",
+  },
+};
+// explicación de cada factor del modo vivir en francés o inglés (los del modo invertir solo llevan el nombre)
+function vivHintTx(r: Row, k: string, lang: "fr" | "en", n: Intl.NumberFormat, n1: Intl.NumberFormat): string | null {
+  const fr = lang === "fr";
+  const piso = r.vtE == null ? null : Math.round((r.vtE * M2_REF) / 1000) * 1000;
+  switch (k) {
+    case "vase":
+      return piso === null || r.esf == null ? null : fr ? `Un appartement de ${M2_REF} m² coûte environ ${n.format(piso)} € : ${n1.format(r.esf)} années de revenu d'un foyer local` : `A ${M2_REF} m² flat costs about €${n.format(piso)}: ${n1.format(r.esf)} years of a local household's income`;
+    case "vseg":
+      return r.crim === null ? null : fr ? `${n1.format(r.crim)} délits pour 1 000 habitants par an` : `${n1.format(r.crim)} offences per 1,000 residents a year`;
+    case "vok":
+      return r.okR === null ? null : fr ? `Risque estimé : ${r.okR}/100` : `Estimated risk: ${r.okR}/100`;
+    case "vparo":
+      return r.paro === null ? null : fr ? `${n1.format(r.paro)} % de chômage enregistré` : `${n1.format(r.paro)}% registered unemployment`;
+    case "vneg":
+      return fr ? `${r.sup ?? 0} supermarchés et ${r.gym ?? 0} salles de sport` : `${r.sup ?? 0} supermarkets and ${r.gym ?? 0} gyms`;
+    case "vcol":
+      return r.col == null ? null : fr ? `${r.col} écoles à moins de 3 km du centre` : `${r.col} schools within 3 km of the centre`;
+    case "vsal":
+      return r.sal == null ? null : fr ? `${r.sal} centres de santé à moins de 3 km${r.hospKm == null ? "" : ` et hôpital à ${n1.format(r.hospKm)} km`}` : `${r.sal} health centres within 3 km${r.hospKm == null ? "" : ` and a hospital ${n1.format(r.hospKm)} km away`}`;
+    case "vtren":
+      return r.trenKm == null ? null : fr ? `Gare la plus proche à ${n1.format(r.trenKm)} km` : `Nearest station ${n1.format(r.trenKm)} km away`;
+    case "vrenta":
+      return r.renta === null ? null : fr ? `${n.format(r.renta)} € nets par personne et par an` : `€${n.format(r.renta)} net per person a year`;
+    case "vpob":
+      return r.pob === null ? null : fr ? `${n1.format(r.pob)} % de la population à faibles revenus` : `${n1.format(r.pob)}% of residents on low incomes`;
+    default:
+      return null;
+  }
+}
 const noSub = () => () => {};
 export function SharedFicha() {
   // los parámetros del enlace se leen en el navegador; en el servidor la página sale vacía ("Cargando…")
   const search = useSyncExternalStore(noSub, () => location.search, () => "");
+  const navLang = useSyncExternalStore(noSub, () => navigator.language.slice(0, 2).toLowerCase(), () => "es");
   const qs = useMemo(() => new URLSearchParams(search), [search]);
   const id = qs.get("id") ?? "";
   const a = qs.get("a") ?? undefined;
   const m = qs.get("m");
+  const l = qs.get("l") ?? navLang;
+  const lang: Lang = l === "fr" || l === "en" ? l : "es";
+  const t = TX[lang];
+  const n = useMemo(() => new Intl.NumberFormat(LOCALE[lang]), [lang]);
+  const n1 = useMemo(() => new Intl.NumberFormat(LOCALE[lang], { minimumFractionDigits: 1, maximumFractionDigits: 1 }), [lang]);
   const mode: Mode = m === "inv" ? "inv" : "viv";
   const viv = mode === "viv";
   const [data, setData] = useState<Data | null>(DATA_CACHE);
@@ -2623,80 +2712,108 @@ export function SharedFicha() {
       cancelled = true;
     };
   }, [a]);
+  useEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
 
   const r = data?.rows.find((x) => x.id === id) ?? null;
   const accent = ag?.color ?? "var(--ink)";
+  const langHref = (x: Lang) => {
+    const p = new URLSearchParams(search);
+    p.set("l", x);
+    return `/f?${p.toString()}`;
+  };
   const brand = (
-    <div className="flex items-center justify-between gap-3 border-b border-line pb-4">
-      <div className="flex min-w-0 items-center gap-3">
-        {ag?.logo && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={ag.logo} alt="" className="h-10 w-10 shrink-0 rounded-lg object-contain" />
-        )}
-        <div className="min-w-0">
-          <div className="truncate text-lg font-bold leading-tight tracking-tight text-ink">{ag?.nombre ?? "Inmo Growth"}</div>
-          {ag?.web && <div className="truncate text-[13px] text-muted">{ag.web}</div>}
-        </div>
+    <>
+      <div className="no-print mb-3 flex justify-end gap-3 text-xs font-semibold">
+        {(["es", "fr", "en"] as Lang[]).map((x) => (
+          <a key={x} href={langHref(x)} aria-current={x === lang ? "true" : undefined} className={x === lang ? "text-ink underline underline-offset-4" : "text-muted hover:text-ink"}>
+            {x.toUpperCase()}
+          </a>
+        ))}
       </div>
-      {ag?.tel && (
-        <a href={`tel:${ag.tel.replace(/\s/g, "")}`} className="shrink-0 whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold text-white" style={{ background: accent }}>
-          {ag.tel}
-        </a>
-      )}
-    </div>
+      <div className="flex items-center justify-between gap-3 border-b border-line pb-4">
+        <div className="flex min-w-0 items-center gap-3">
+          {ag?.logo && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={ag.logo} alt="" className="h-10 w-10 shrink-0 rounded-lg object-contain" />
+          )}
+          <div className="min-w-0">
+            <div className="truncate text-lg font-bold leading-tight tracking-tight text-ink">{ag?.nombre ?? "Inmo Growth"}</div>
+            {ag?.web && <div className="truncate text-[13px] text-muted">{ag.web}</div>}
+          </div>
+        </div>
+        {ag?.tel && (
+          <a href={`tel:${ag.tel.replace(/\s/g, "")}`} className="shrink-0 whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold text-white" style={{ background: accent }}>
+            {ag.tel}
+          </a>
+        )}
+      </div>
+    </>
   );
   if (!r) {
     return (
       <main className="mx-auto min-h-dvh max-w-2xl bg-white px-5 py-6 text-ink">
         {brand}
-        <p className="py-16 text-center text-muted">{failed ? "No se han podido cargar los datos. Vuelve a intentarlo." : data ? "Municipio no encontrado." : "Cargando…"}</p>
+        <p className="py-16 text-center text-muted">{failed ? t.failed : data ? t.notFound : t.loading}</p>
       </main>
     );
   }
 
   const head = mainVal(r, mode);
-  const verdict = viv ? vivVerdict(r.viv) : recommend(r);
+  const vvIdx = r.viv == null ? null : r.viv >= 65 ? 0 : r.viv >= 55 ? 1 : r.viv >= 45 ? 2 : 3;
+  const rec = recommend(r);
+  const verdict = viv ? (vvIdx === null ? null : { label: t.vv[vvIdx], color: vivVerdict(r.viv)?.color }) : rec ? { label: t.rec[rec.lvl], color: rec.color } : null;
   const factors = viv ? vivFactors(r) : buildFactors(r, data, data?.negHist ?? false);
   const wsum = factors.reduce((s, f) => (f.v === null ? s : s + f.w), 0);
-  const calc = factors.map((f) => ({ ...f, delta: f.v === null ? null : (f.w * (f.v - 50)) / wsum }));
+  const calc = factors.map((f) => ({
+    ...f,
+    label: lang === "es" ? f.label : (FACTOR_TX[lang][f.k] ?? f.label),
+    hint: lang === "es" ? f.hint : (vivHintTx(r, f.k, lang, n, n1) ?? ""),
+    delta: f.v === null ? null : (f.w * (f.v - 50)) / wsum,
+  }));
   const pros = calc.filter((f) => f.delta !== null && f.delta >= 0.4).sort((x, y) => (y.delta ?? 0) - (x.delta ?? 0)).slice(0, 4);
   const cons = calc.filter((f) => f.delta !== null && f.delta <= -0.4).sort((x, y) => (x.delta ?? 0) - (y.delta ?? 0)).slice(0, 3);
   const approx = r.vtK === "mun" ? "" : "≈ ";
   const piso = r.vtE == null ? null : Math.round((r.vtE * M2_REF) / 1000) * 1000;
+  const km = (v: number, dec = false) => `${(dec ? n1 : n).format(v)} km`;
+  const okTx = r.okR === null ? null : t.lvl[r.okR < 40 ? 0 : r.okR < 60 ? 1 : r.okR < 75 ? 2 : 3];
+  const zoneTx = r.zona === null ? null : t.zone[r.zona >= 60 ? 0 : r.zona >= 40 ? 1 : 2];
+  const common: [string, string | null, string?][] = [
+    [t.ciu, r.dc === 0 ? t.loEs : r.dc > 100 ? null : `${r.cn}, ${km(r.dc)}`],
+    [t.mar, r.costa === null || r.costa > 60 ? null : km(Math.round(r.costa))],
+    [t.aer, r.aerKm == null || r.aerKm > 150 ? null : `${r.aer}, ${km(r.aerKm)}`],
+  ];
   const facts: [string, string | null, string?][] = viv
     ? [
-        [`Piso de ${M2_REF} m²`, piso === null ? null : `≈ ${fmt.format(piso)} €`],
-        ["Alquiler", r.alqRE === null ? null : `≈ ${fmt.format(r.alqRE)} €/mes`],
-        ["Okupación", r.okR === null ? null : okLevel(r.okR), okDot(r.okR)],
-        ["Zona", r.zona === null ? null : cap(zoneShort(r.zona).replace("Zona ", "")), zoneDot(r.zona)],
-        ["Paro", r.paro === null ? null : `${fmt1.format(r.paro)}%`],
-        ["Colegios a 3 km", r.col == null ? null : String(r.col)],
-        ["Centros sanitarios a 3 km", r.sal == null ? null : String(r.sal)],
-        ["Hospital", r.hospKm == null ? null : `${fmt1.format(r.hospKm)} km`],
-        ["Tren o metro", r.trenKm == null || r.trenKm > 30 ? null : r.trenKm < 1 ? "Menos de 1 km" : `${fmt1.format(r.trenKm)} km`],
-        ["Ciudad grande", r.dc === 0 ? "Lo es" : r.dc > 100 ? null : `${r.cn}, ${fmt.format(r.dc)} km`],
-        ["Mar", r.costa === null || r.costa > 60 ? null : `${fmt.format(Math.round(r.costa))} km`],
-        ["Aeropuerto", r.aerKm == null || r.aerKm > 150 ? null : `${r.aer}, ${fmt.format(r.aerKm)} km`],
+        [t.piso, piso === null ? null : `≈ ${n.format(piso)} €`],
+        [t.alq, r.alqRE === null ? null : `≈ ${n.format(r.alqRE)} €${t.mes}`],
+        [t.ok, okTx, okDot(r.okR)],
+        [t.zona, zoneTx, zoneDot(r.zona)],
+        [t.paro, r.paro === null ? null : `${n1.format(r.paro)} %`],
+        [t.col, r.col == null ? null : String(r.col)],
+        [t.sal, r.sal == null ? null : String(r.sal)],
+        [t.hosp, r.hospKm == null ? null : km(r.hospKm, true)],
+        [t.tren, r.trenKm == null || r.trenKm > 30 ? null : r.trenKm < 1 ? t.lt1 : km(r.trenKm, true)],
+        ...common,
       ]
     : [
-        ["Población en 5 años", `${sgn(r.g5)}%`],
-        ["Precio", r.vtE == null ? null : `${approx}${fmt.format(r.vtE)} €/m²`],
-        ["Alquiler", r.alqRE === null ? null : `≈ ${fmt.format(r.alqRE)} €/mes`],
-        ["Rentabilidad bruta", r.rb === null ? null : `${fmt1.format(r.rb)}%`],
-        ["Okupación", r.okR === null ? null : okLevel(r.okR), okDot(r.okR)],
-        ["Zona", r.zona === null ? null : cap(zoneShort(r.zona).replace("Zona ", "")), zoneDot(r.zona)],
-        ["Paro", r.paro === null ? null : `${fmt1.format(r.paro)}%`],
-        ["Vivienda turística", r.tur === null ? null : `${fmt1.format(r.tur)}%`],
-        ["Obra pública", r.op === null ? null : `${fmt.format(r.op)} €/hab.`],
-        ["Universidad", r.uniKm === null ? null : `${fmt1.format(r.uniKm)} km`],
-        ["Ciudad grande", r.dc === 0 ? "Lo es" : r.dc > 100 ? null : `${r.cn}, ${fmt.format(r.dc)} km`],
-        ["Mar", r.costa === null || r.costa > 60 ? null : `${fmt.format(Math.round(r.costa))} km`],
-        ["Aeropuerto", r.aerKm == null || r.aerKm > 150 ? null : `${r.aer}, ${fmt.format(r.aerKm)} km`],
+        [t.pop5, `${sgn(r.g5)} %`],
+        [t.precio, r.vtE == null ? null : `${approx}${n.format(r.vtE)} €/m²`],
+        [t.alq, r.alqRE === null ? null : `≈ ${n.format(r.alqRE)} €${t.mes}`],
+        [t.rb, r.rb === null ? null : `${n1.format(r.rb)} %`],
+        [t.ok, okTx, okDot(r.okR)],
+        [t.zona, zoneTx, zoneDot(r.zona)],
+        [t.paro, r.paro === null ? null : `${n1.format(r.paro)} %`],
+        [t.tur, r.tur === null ? null : `${n1.format(r.tur)} %`],
+        [t.op, r.op === null ? null : `${n.format(r.op)} ${t.opU}`],
+        [t.uni, r.uniKm === null ? null : km(r.uniKm, true)],
+        ...common,
       ];
   const series: Serie[] = [];
-  if (r.ps && data) series.push({ id: "pop", label: "Población", pts: r.ps.map((v, i) => [data.psY + i, v]), unit: "hab.", up: "good" });
-  if (r.vtS) series.push({ id: "vt", label: "Precio", pts: r.vtS, unit: "€/m²", up: "good", note: "precio de tasación (Ministerio)" });
-  if (r.alqS) series.push({ id: "alq", label: "Alquiler", pts: r.alqS, unit: "€/m² al mes", up: "good", note: "mediana de los contratos declarados (Ministerio de Vivienda)" });
+  if (r.ps && data) series.push({ id: "pop", label: t.sPop, pts: r.ps.map((v, i) => [data.psY + i, v]), unit: t.hab, up: "good" });
+  if (r.vtS) series.push({ id: "vt", label: t.sVt, pts: r.vtS, unit: "€/m²", up: "good" });
+  if (r.alqS) series.push({ id: "alq", label: t.sAlq, pts: r.alqS, unit: `€/m²${t.mes}`, up: "good" });
   const list = (items: typeof calc, good: boolean) => (
     <ul>
       {items.map((f) => (
@@ -2704,7 +2821,7 @@ export function SharedFicha() {
           <span className={`shrink-0 font-semibold ${good ? "text-forest" : "text-brick"}`}>{good ? "✓" : "✕"}</span>
           <span className="min-w-0">
             <span className="block text-[15px] font-medium text-ink">{f.label}</span>
-            <span className="block text-[13px] leading-snug text-muted">{f.hint}</span>
+            {f.hint && <span className="block text-[13px] leading-snug text-muted">{f.hint}</span>}
           </span>
         </li>
       ))}
@@ -2719,10 +2836,10 @@ export function SharedFicha() {
           <div className="min-w-0">
             <h1 className="text-[28px] font-semibold leading-tight tracking-tight">{r.n}</h1>
             <p className="text-sm text-muted">
-              {r.prov} · {fmt.format(r.pop)} hab.
+              {r.prov} · {n.format(r.pop)} {t.hab}
             </p>
             <div className="mt-5 flex items-baseline gap-2">
-              <span className="text-6xl font-semibold leading-none tabular-nums tracking-tight">{head === null ? "—" : fmt1.format(head)}</span>
+              <span className="text-6xl font-semibold leading-none tabular-nums tracking-tight">{head === null ? "—" : n1.format(head)}</span>
               {head !== null && <span className="text-sm text-muted">/ 100</span>}
             </div>
             {head !== null && (
@@ -2731,7 +2848,7 @@ export function SharedFicha() {
                 <span className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-white" style={{ left: `${head}%`, background: accent }} />
               </div>
             )}
-            <p className="mt-2 text-[13px] text-muted">{viv ? "Índice para vivir: seguridad, servicios, empleo y precio" : "Índice de crecimiento del municipio"}</p>
+            <p className="mt-2 text-[13px] text-muted">{viv ? t.idxViv : t.idxInv}</p>
             {verdict && (
               <div className="mt-2 flex items-center gap-2 text-[15px] font-semibold">
                 <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: verdict.color }} />
@@ -2752,13 +2869,13 @@ export function SharedFicha() {
           <section className="mt-5 grid gap-x-10 gap-y-4 @xl:grid-cols-2">
             {pros.length > 0 && (
               <div>
-                <h2 className="text-lg font-semibold tracking-tight">A favor</h2>
+                <h2 className="text-lg font-semibold tracking-tight">{t.pros}</h2>
                 {list(pros, true)}
               </div>
             )}
             {cons.length > 0 && (
               <div>
-                <h2 className="text-lg font-semibold tracking-tight">A tener en cuenta</h2>
+                <h2 className="text-lg font-semibold tracking-tight">{t.cons}</h2>
                 {list(cons, false)}
               </div>
             )}
@@ -2767,28 +2884,25 @@ export function SharedFicha() {
 
         {series.length > 0 && (
           <section className="mt-7">
-            <TrendChart series={series} />
+            <TrendChart series={series} tx={{ years: t.years, since: t.since, locale: LOCALE[lang] }} />
           </section>
         )}
 
         <div className="no-print mt-8 flex flex-wrap gap-2">
           {ag?.tel && (
             <a href={`tel:${ag.tel.replace(/\s/g, "")}`} className="flex-1 whitespace-nowrap rounded-full px-5 py-3 text-center text-[15px] font-semibold text-white" style={{ background: accent }}>
-              Llamar a {ag.nombre}
+              {t.call} {ag.nombre}
             </a>
           )}
           <button onClick={() => window.print()} className="flex-1 whitespace-nowrap rounded-full bg-paper px-5 py-3 text-[15px] font-semibold text-ink hover:bg-tint">
-            Guardar en PDF
+            {t.pdf}
           </button>
         </div>
 
         <footer className="mt-8 border-t border-line pt-4 text-xs leading-relaxed text-muted">
-          <p>
-            Datos públicos: INE, Ministerio de Vivienda, Ministerio del Interior, SEPE, Catastro y OpenStreetMap. Las cifras con «≈» son estimaciones y el riesgo de okupación es orientativo. Este documento es
-            informativo: no es una tasación ni asesoramiento financiero.
-          </p>
+          <p>{t.legal}</p>
           <p className="mt-2">
-            {ag ? `Preparado por ${ag.nombre} con ` : "Hecho con "}
+            {ag ? `${t.by} ${ag.nombre} ${t.withApp} ` : `${t.made} `}
             <a href={a ? `/?a=${encodeURIComponent(a)}` : "/"} className="no-print font-semibold text-ink underline">
               Inmo Growth
             </a>
