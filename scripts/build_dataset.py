@@ -156,6 +156,18 @@ for r in rows:
     # las 3 mayores: [título, €, fecha, enlace]; solo en municipios de 2.000 hab. o más, para no engordar el fichero que descarga la app
     r["opT"] = ([[t[0][:110], t[1], t[2], t[3]] for t in _opt.get(r["id"], [])] or None) if r["pop"] >= 2000 else None
 
+# Servicios para vivir (OpenStreetMap; scripts/fetch_servicios.py y process_servicios.py). Solo se usan en el modo "para vivir" de la app.
+_sv = {r["ine"]: r for r in csv.DictReader(open(ROOT / "data/raw/servicios_mun.csv"))}
+for r in rows:
+    v = _sv.get(r["id"])
+    # un municipio de 5.000 hab. o más sin ningún colegio o centro sanitario es un hueco de OpenStreetMap, no un cero real: se deja sin dato
+    gap = lambda n: None if n == 0 and r["pop"] >= 5000 else n
+    r["col"] = gap(int(v["col"])) if v else None       # colegios a menos de 3 km del centro
+    r["sal"] = gap(int(v["sal"])) if v else None       # centros de salud, consultorios y clínicas a menos de 3 km del centro
+    r["hospKm"] = float(v["hospKm"]) if v else None    # km en línea recta al hospital más cercano
+    r["trenKm"] = float(v["trenKm"]) if v else None    # km en línea recta a la estación de tren o metro más cercana
+    r["trenN"] = int(v["trenN"]) if v else None        # estaciones en el municipio
+
 # Futuro: proyección INE por provincia + suelo disponible y obra nueva (Catastro, 2021 vs 2026; no cubre País Vasco ni Navarra)
 proy = {r["prov"]: r for r in csv.DictReader(open(ROOT / "data/raw/proyeccion_prov.csv"))}
 cat = {r["ine"]: r for r in csv.DictReader(open(ROOT / "data/raw/catastro_futuro.csv"))}

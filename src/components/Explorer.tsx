@@ -70,6 +70,14 @@ type Row = {
   vt: number | null; // valor tasado vivienda libre €/m² (solo >25.000 hab.)
   vtE?: number | null; // precio para filtrar y para el modo vivir: el municipal o, si no existe, uno estimado (se calcula al cargar)
   vtK?: "mun" | "est" | "prov" | null; // de dónde sale vtE: tasación municipal, estimado con el alquiler o media provincial
+  col: number | null; // colegios a menos de 3 km del centro (OpenStreetMap)
+  sal: number | null; // centros de salud, consultorios y clínicas a menos de 3 km del centro
+  hospKm: number | null; // km en línea recta al hospital más cercano
+  trenKm: number | null; // km en línea recta a la estación de tren o metro más cercana
+  trenN: number | null; // estaciones en el municipio
+  sCol?: number | null; // 0-100 (se calculan al cargar)
+  sSal?: number | null;
+  sTren?: number | null;
   esf?: number | null; // esfuerzo de compra: años de renta de un hogar que cuesta un piso de 90 m² (se calcula al cargar)
   sAse?: number | null; // 0-100, más alto = más asequible para quien vive allí
   viv?: number | null; // índice para vivir, 0-100 (se calcula al cargar)
@@ -171,7 +179,7 @@ function recommend(r: Row): Rec | null {
 type Mode = "inv" | "viv";
 const MODE_KEY = "inmo-modo";
 const ModeCtx = createContext<Mode>("inv");
-const BudgetCtx = createContext<number | null>(null); // presupuesto total del usuario (modo vivir), para la ficha
+const BudgetCtx = createContext<{ budget: number | null; m2: number }>({ budget: null, m2: 90 }); // presupuesto y metros del usuario (modo vivir)
 function subscribeMode(cb: () => void) {
   window.addEventListener(MODE_KEY, cb);
   window.addEventListener("storage", cb);
@@ -192,14 +200,25 @@ const M2_REF = 90; // piso de referencia para el esfuerzo de compra
 
 // Qué cuenta para vivir, con su peso. Si falta un dato se reponderan los demás.
 function vivFactors(r: Row): Factor[] {
+  const piso = r.vtE == null ? null : Math.round((r.vtE * M2_REF) / 1000) * 1000;
   return [
+    { k: "vase", label: "Precio asequible", w: 0.2, v: r.sAse ?? null, group: "context", hint: piso === null || r.esf == null ? "Sin dato de precio" : `Un piso de ${M2_REF} m² cuesta unos ${fmt.format(piso)} €: ${fmt1.format(r.esf)} años de la renta de un hogar de allí` },
     { k: "vseg", label: "Seguridad", w: 0.15, v: r.sSeg, group: "context", hint: r.crim === null ? "Sin dato municipal (solo capitales y municipios de más de 20.000 hab.)" : `${fmt1.format(r.crim)} delitos por 1.000 habitantes al año` },
-    { k: "vok", label: "Poca okupación", w: 0.15, v: r.okR === null ? null : 100 - r.okR, group: "context", hint: r.okR === null ? "Sin datos" : `Riesgo estimado ${r.okR}/100` },
-    { k: "vrenta", label: "Renta de los vecinos", w: 0.1, v: r.sRenta, group: "context", hint: r.renta === null ? "Sin dato" : `${fmt.format(r.renta)} € netos por persona al año` },
-    { k: "vpob", label: "Poca pobreza", w: 0.1, v: r.sPob, group: "context", hint: r.pob === null ? "Sin dato" : `${fmt1.format(r.pob)} % de la población con ingresos bajos` },
-    { k: "vparo", label: "Empleo", w: 0.15, v: r.sParo, group: "context", hint: r.paro === null ? "Sin dato" : `${fmt1.format(r.paro)} % de paro registrado` },
-    { k: "vneg", label: "Comercios y servicios", w: 0.15, v: r.sNeg, group: "context", hint: `${r.sup ?? 0} supermercados, ${r.gym ?? 0} gimnasios y ${r.hor ?? 0} bares y restaurantes` },
-    { k: "vase", label: "Precio asequible", w: 0.2, v: r.sAse ?? null, group: "context", hint: r.esf == null ? "Sin dato de precio" : `Un piso de ${M2_REF} m² cuesta unos ${fmt1.format(r.esf)} años de la renta de un hogar de allí` },
+    { k: "vok", label: "Poca okupación", w: 0.1, v: r.okR === null ? null : 100 - r.okR, group: "context", hint: r.okR === null ? "Sin datos" : `Riesgo estimado ${r.okR}/100` },
+    { k: "vparo", label: "Empleo", w: 0.1, v: r.sParo, group: "context", hint: r.paro === null ? "Sin dato" : `${fmt1.format(r.paro)} % de paro registrado` },
+    { k: "vneg", label: "Comercios", w: 0.1, v: r.sNeg, group: "context", hint: `${r.sup ?? 0} supermercados y ${r.gym ?? 0} gimnasios` },
+    { k: "vcol", label: "Colegios", w: 0.1, v: r.sCol ?? null, group: "context", hint: r.col == null ? "Sin dato" : `${r.col} ${r.col === 1 ? "colegio" : "colegios"} a menos de 3 km del centro` },
+    {
+      k: "vsal",
+      label: "Sanidad",
+      w: 0.1,
+      v: r.sSal ?? null,
+      group: "context",
+      hint: r.sal == null ? "Sin dato" : `${r.sal} ${r.sal === 1 ? "centro sanitario" : "centros sanitarios"} a menos de 3 km${r.hospKm == null ? "" : ` y hospital a ${fmt1.format(r.hospKm)} km`}`,
+    },
+    { k: "vtren", label: "Tren o metro", w: 0.05, v: r.sTren ?? null, group: "context", hint: r.trenKm == null ? "Sin dato" : `Estación más cercana a ${fmt1.format(r.trenKm)} km` },
+    { k: "vrenta", label: "Renta de los vecinos", w: 0.05, v: r.sRenta, group: "context", hint: r.renta === null ? "Sin dato" : `${fmt.format(r.renta)} € netos por persona al año` },
+    { k: "vpob", label: "Poca pobreza", w: 0.05, v: r.sPob, group: "context", hint: r.pob === null ? "Sin dato" : `${fmt1.format(r.pob)} % de la población con ingresos bajos` },
   ];
 }
 // Precio por municipio. El Ministerio solo publica la tasación en los de más de 25.000 hab.; en el resto se estima con el alquiler,
@@ -242,7 +261,28 @@ const PRICE_NOTE: Record<string, string> = {
 function computeViv(rows: Row[]) {
   for (const r of rows) r.esf = r.vtE != null && r.rentaH ? Math.round(((r.vtE * M2_REF) / r.rentaH) * 10) / 10 : null;
   const ref = rows.filter((r) => r.pop >= 1000 && r.esf != null).map((r) => r.esf as number).sort((a, b) => a - b);
+  // colegios y centros sanitarios a menos de 3 km del centro: percentil del recuento, entre municipios de 1.000 hab. o más
+  const perCap = (get: (r: Row) => number | null) => {
+    const base = rows.filter((r) => r.pop >= 1000 && get(r) != null).map((r) => get(r) as number).sort((a, b) => a - b);
+    return (r: Row) => {
+      const x = get(r);
+      if (x == null || base.length < 2) return null;
+      let lo = 0, hi = base.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (base[mid] < x) lo = mid + 1;
+        else hi = mid;
+      }
+      return Math.round((100 * lo) / (base.length - 1));
+    };
+  };
+  const pCol = perCap((r) => r.col ?? null), pSal = perCap((r) => r.sal ?? null);
+  const near = (km: number | null | undefined, full: number, zero: number) => (km == null ? null : Math.round(100 * Math.min(1, Math.max(0, 1 - (km - full) / (zero - full)))));
   for (const r of rows) {
+    r.sCol = pCol(r);
+    const ps = pSal(r), ph = near(r.hospKm, 5, 40); // sanidad: mitad centros cerca, mitad cercanía a un hospital (100 a 5 km o menos, 0 a 40 km)
+    r.sSal = ps === null ? ph : ph === null ? ps : Math.round((ps + ph) / 2);
+    r.sTren = near(r.trenKm, 2, 20); // 100 con estación a 2 km o menos, 0 a 20 km
     if (r.esf == null || ref.length < 2) {
       r.sAse = null;
     } else {
@@ -1045,6 +1085,7 @@ function MiniMap({ r }: { r: Row }) {
 // Fila de municipio: nombre, minicurva, índice y crecimiento
 function MuniRow({ r, onOpen, fav, onFav, rank }: { r: Row; onOpen: (r: Row) => void; fav: boolean; onFav: (id: string) => void; rank?: number }) {
   const mode = useContext(ModeCtx);
+  const { m2 } = useContext(BudgetCtx);
   const rc = mode === "viv" ? vivVerdict(r.viv) : recommend(r);
   const val = mainVal(r, mode);
   return (
@@ -1062,7 +1103,7 @@ function MuniRow({ r, onOpen, fav, onFav, rank }: { r: Row; onOpen: (r: Row) => 
         <span className={`${mode === "viv" ? "w-20" : "w-14"} shrink-0 text-right`}>
           <span className="block text-[15px] font-semibold tabular-nums text-ink">{val === null ? "—" : fmt1.format(val)}</span>
           {mode === "viv" ? (
-            <span className="block whitespace-nowrap text-xs tabular-nums text-muted">{r.vtE == null ? "" : `${r.vtK === "mun" ? "" : "≈ "}${fmt.format(r.vtE)} €/m²`}</span>
+            <span className="block whitespace-nowrap text-xs tabular-nums text-muted">{r.vtE == null ? "" : `≈ ${fmt.format(Math.round((r.vtE * m2) / 1000) * 1000)} €`}</span>
           ) : (
             <span className="block text-xs tabular-nums" style={{ color: r.g5 >= 0 ? "var(--forest)" : "var(--brick)" }}>
               {sgn(r.g5)}%
@@ -1127,7 +1168,7 @@ function Ficha({
   mapLabel?: string;
 }) {
   const mode = useContext(ModeCtx);
-  const budget = useContext(BudgetCtx);
+  const { budget, m2 } = useContext(BudgetCtx);
   const viv = mode === "viv";
   const factors = viv ? vivFactors(sel) : buildFactors(sel, data, hist);
   const head = mainVal(sel, mode);
@@ -1236,9 +1277,9 @@ function Ficha({
         <dl className="grid grid-cols-2 gap-x-6 @xl:grid-cols-3">
           {viv && (
             <Stat
-              label="Esfuerzo de compra"
-              value={sel.esf == null ? "—" : `${fmt1.format(sel.esf)} años`}
-              info={`Años de la renta neta de un hogar de allí que cuesta un piso de ${M2_REF} m²${sel.vtK === "mun" ? "" : " (con el precio estimado)"}. Cuanto más bajo, más asequible.`}
+              label={`Piso de ${m2} m²`}
+              value={sel.vtE == null ? "—" : `≈ ${fmt.format(Math.round((sel.vtE * m2) / 1000) * 1000)} €`}
+              info={`${sel.vtK === "mun" ? "Precio de tasación" : "Precio estimado"} del municipio (${sel.vtE == null ? "—" : fmt.format(sel.vtE)} €/m²) por ${m2} m². No incluye impuestos ni gastos (calcula un 10 % más).${sel.esf == null ? "" : ` Un piso de ${M2_REF} m² equivale a ${fmt1.format(sel.esf)} años de la renta neta de un hogar de allí.`}`}
             />
           )}
           {viv && budget && (
@@ -1277,6 +1318,21 @@ function Ficha({
           />
           {!viv && sel.rb !== null && (
             <Stat label="Rentabilidad bruta" value={`${fmt1.format(sel.rb)}%`} info="Orientativa: alquiler estimado de un año dividido entre el valor tasado, antes de gastos e impuestos." />
+          )}
+          {viv && <Stat label="Colegios" value={sel.col == null ? "—" : String(sel.col)} info="Colegios a menos de 3 km del centro del municipio, según OpenStreetMap. Puede faltar alguno." />}
+          {viv && (
+            <Stat
+              label="Centros sanitarios"
+              value={sel.sal == null ? "—" : String(sel.sal)}
+              info={`Centros de salud, consultorios y clínicas a menos de 3 km del centro, según OpenStreetMap (incluye privados).${sel.hospKm == null ? "" : ` Hospital más cercano a ${fmt1.format(sel.hospKm)} km en línea recta.`}`}
+            />
+          )}
+          {viv && (
+            <Stat
+              label="Tren o metro"
+              value={sel.trenKm == null ? "—" : sel.trenKm < 1 ? "Menos de 1 km" : `${fmt1.format(sel.trenKm)} km`}
+              info={`Distancia en línea recta del centro del municipio a la estación más cercana${sel.trenN ? `; ${sel.trenN} ${sel.trenN === 1 ? "estación" : "estaciones"} en el municipio` : ""} (OpenStreetMap). No indica cuántos trenes paran.`}
+            />
           )}
           <Stat label="Vivienda vacía" value={sel.vac === null ? "—" : `${fmt1.format(sel.vac)}%`} info="Censo de 2021 (INE)." />
           <Stat
@@ -2170,9 +2226,9 @@ function Inner({ mode }: { mode: Mode }) {
   );
   const favRows = data ? applyFilters(data.rows, { ...DEFAULTS, minPop: 0 }, "score", favs) : [];
 
-  const budget = viv && Number(prefs.pres) > 0 ? Number(prefs.pres) : null;
+  const budgetCtx = useMemo(() => ({ budget: viv && Number(prefs.pres) > 0 ? Number(prefs.pres) : null, m2: viv && Number(prefs.m2) > 0 ? Number(prefs.m2) : M2_REF }), [viv, prefs.pres, prefs.m2]);
   return (
-    <BudgetCtx.Provider value={budget}>
+    <BudgetCtx.Provider value={budgetCtx}>
     <div className="min-h-dvh bg-white text-ink">
       <header className={`fixed inset-x-0 top-0 z-30 border-b ${view.k === "map" ? "border-transparent bg-white/70 backdrop-blur-md" : "border-line bg-white"}`}>
         <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-2.5">
@@ -2400,8 +2456,9 @@ function Inner({ mode }: { mode: Mode }) {
           <div className="space-y-2 pb-4 text-muted">
             {viv && (
               <p>
-                <b>Índice para vivir</b> (el que ordena esta lista): 20 % precio asequible (años de renta de un hogar del municipio que cuesta un piso de {M2_REF} m²), 15 % seguridad, 15 % poca
-                okupación, 15 % empleo, 15 % comercios y servicios, 10 % renta de los vecinos y 10 % poca pobreza. La seguridad solo se publica en capitales y municipios de más de 20.000 habitantes; donde
+                <b>Índice para vivir</b> (el que ordena esta lista): 20 % precio asequible (años de renta de un hogar del municipio que cuesta un piso de {M2_REF} m²), 15 % seguridad, 10 % poca
+                okupación, 10 % empleo, 10 % comercios, 10 % colegios, 10 % sanidad (centros a menos de 3 km y cercanía a un hospital), 5 % tren o metro cerca, 5 % renta de los vecinos y 5 % poca
+                pobreza. Colegios, centros sanitarios y estaciones salen de OpenStreetMap, que no está igual de completo en todas partes. La seguridad solo se publica en capitales y municipios de más de 20.000 habitantes; donde
                 falta, se reparte su peso entre lo demás. El precio es el de tasación del municipio o, si no se publica (menos de 25.000 hab.), uno estimado con la media de la provincia y el alquiler del municipio. Lo que sigue explica el índice de crecimiento, que es
                 el del modo «Para invertir».
               </p>
